@@ -1,4 +1,4 @@
-module github.com/lumeweb/ipfs-content
+module github.com/lumeweb/ipfs-content // v0.0.0
 
 go 1.26.0
 
