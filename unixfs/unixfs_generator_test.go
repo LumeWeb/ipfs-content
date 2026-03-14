@@ -373,6 +373,7 @@ func TestIPFSUnixFSNodeGenerator_ContextCancellation(t *testing.T) {
 			defer cleanup()
 
 			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			if tt.cancelBefore {
 				cancel()
