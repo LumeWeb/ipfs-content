@@ -3,7 +3,7 @@ name: Go
 on:
   push:
   pull_request:
-    branches: [ 'main', 'master', 'develop' ]
+    branches: [ 'develop' ]
 
 permissions:
   pull-requests: write
@@ -29,6 +29,10 @@ jobs:
       run: go build -v ./...
 
     - name: Test
+      env:
+        # Default test secrets - fallback for CI when not set
+        JWT_TEST_SECRET: test-jwt-signing-secret-for-testing
+        TEST_API_TOKEN: test-token
       run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
     - name: Generate coverage report
