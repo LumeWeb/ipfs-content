@@ -422,11 +422,12 @@ func (b *CARBuilder) writeBlockToCAR(ctx context.Context, blockCID cid.Cid, w io
 	}
 
 	// Regenerate the block using the standard path (adds to blockstore)
+	var file fs.File
 	if entry.IsDir {
 		_, _, err = b.createDirectoryBlock(ctx, entry, b.summary.TreeEntries)
 	} else {
 		filePath := filepath.Join(entry.Path, entry.Name)
-		file, err := b.filesystem.Open(filePath)
+		file, err = b.filesystem.Open(filePath)
 		if err != nil {
 			return err
 		}

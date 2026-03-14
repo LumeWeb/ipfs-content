@@ -175,7 +175,12 @@ func TestIPFSUnixFSNodeGenerator_CreateNode(t *testing.T) {
 
 			reader := io.NopCloser(bytes.NewReader(tt.content))
 
-			node, err := generator.CreateNode(ctx, newReadSeekCloser(reader))
+			rsc, err := newReadSeekCloser(reader)
+			if err != nil {
+				t.Fatalf("failed to create readSeekCloser: %v", err)
+			}
+
+			node, err := generator.CreateNode(ctx, rsc)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -237,7 +242,12 @@ func TestIPFSUnixFSNodeGenerator_CreateUnixFSNode(t *testing.T) {
 
 			reader := io.NopCloser(bytes.NewReader(tt.content))
 
-			node, err := generator.CreateUnixFSNode(ctx, newReadSeekCloser(reader), tt.maxLinks, tt.chunkSize)
+			rsc, err := newReadSeekCloser(reader)
+			if err != nil {
+				t.Fatalf("failed to create readSeekCloser: %v", err)
+			}
+
+			node, err := generator.CreateUnixFSNode(ctx, rsc, tt.maxLinks, tt.chunkSize)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -371,12 +381,22 @@ func TestIPFSUnixFSNodeGenerator_ContextCancellation(t *testing.T) {
 			content := []byte("test content")
 			reader := io.NopCloser(bytes.NewReader(content))
 
-			var err error
+	var err error
 			switch tt.method {
 			case "CreateNode":
-				_, err = generator.CreateNode(ctx, newReadSeekCloser(reader))
+				rsc, rerr := newReadSeekCloser(reader)
+				if rerr != nil {
+					err = rerr
+				} else {
+					_, err = generator.CreateNode(ctx, rsc)
+				}
 			case "CreateUnixFSNode":
-				_, err = generator.CreateUnixFSNode(ctx, newReadSeekCloser(reader), 10, 256)
+				rsc, rerr := newReadSeekCloser(reader)
+				if rerr != nil {
+					err = rerr
+				} else {
+					_, err = generator.CreateUnixFSNode(ctx, rsc, 10, 256)
+				}
 			case "CreateDAGFromReader":
 				_, err = generator.CreateDAGFromReader(ctx, bytes.NewReader(content), 10, 256, false)
 			}
@@ -416,7 +436,12 @@ func TestIPFSUnixFSNodeGenerator_VariousContentSizes(t *testing.T) {
 
 			reader := io.NopCloser(bytes.NewReader(content))
 
-			node, err := generator.CreateNode(ctx, newReadSeekCloser(reader))
+			rsc, rerr := newReadSeekCloser(reader)
+			if rerr != nil {
+				t.Fatalf("failed to create readSeekCloser: %v", rerr)
+			}
+
+			node, err := generator.CreateNode(ctx, rsc)
 
 			assert.NoError(t, err)
 			assert.NotNil(t, node)
@@ -471,7 +496,12 @@ func TestIPFSUnixFSNodeGenerator_PerformanceEdgeCases(t *testing.T) {
 			content := []byte("test content")
 			reader := io.NopCloser(bytes.NewReader(content))
 
-			node, err := generator.CreateUnixFSNode(ctx, newReadSeekCloser(reader), tt.maxLinks, tt.chunkSize)
+			rsc, rerr := newReadSeekCloser(reader)
+			if rerr != nil {
+				t.Fatalf("failed to create readSeekCloser: %v", rerr)
+			}
+
+			node, err := generator.CreateUnixFSNode(ctx, rsc, tt.maxLinks, tt.chunkSize)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -509,11 +539,16 @@ func (r *readSeekCloser) Close() error {
 	return nil
 }
 
-func newReadSeekCloser(r io.Reader) io.ReadSeekCloser {
+func newReadSeekCloser(r io.Reader) (io.ReadSeekCloser, error) {
 	if rs, ok := r.(io.ReadSeekCloser); ok {
-		return rs
+		return rs, nil
 	}
-	return &readSeekCloser{Reader: r, Seeker: bytes.NewReader([]byte{})}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	br := bytes.NewReader(data)
+	return &readSeekCloser{Reader: br, Seeker: br}, nil
 }
 
 // failingErrorSeeker implements io.ReadSeekCloser but fails on operations

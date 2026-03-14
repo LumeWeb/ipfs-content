@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ipfs/go-block-format"
+	blockformat "github.com/ipfs/go-block-format"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,10 +29,10 @@ func TestInMemoryBlockstore_AddBlocksFromFile(t *testing.T) {
 		bs := NewInMemoryBlockstore()
 
 		data := []byte("test data")
-		block := blocks.NewBlock(data)
+		block := blockformat.NewBlock(data)
 
-		blockList := []blocks.Block{block}
-		err := bs.AddBlocksFromFile(blockList, ctx)
+		blockList := []blockformat.Block{block}
+		err := bs.AddBlocksFromFile(ctx, blockList)
 		require.NoError(t, err)
 	})
 
@@ -40,13 +40,13 @@ func TestInMemoryBlockstore_AddBlocksFromFile(t *testing.T) {
 		bs := NewInMemoryBlockstore()
 
 		data1 := []byte("test data 1")
-		block1 := blocks.NewBlock(data1)
+		block1 := blockformat.NewBlock(data1)
 
 		data2 := []byte("test data 2")
-		block2 := blocks.NewBlock(data2)
+		block2 := blockformat.NewBlock(data2)
 
-		blockList := []blocks.Block{block1, block2}
-		err := bs.AddBlocksFromFile(blockList, ctx)
+		blockList := []blockformat.Block{block1, block2}
+		err := bs.AddBlocksFromFile(ctx, blockList)
 		require.NoError(t, err)
 	})
 }
@@ -56,7 +56,7 @@ func TestInMemoryBlockstore_BasicOperations(t *testing.T) {
 		bs := NewInMemoryBlockstore()
 
 		data := []byte("test data")
-		block := blocks.NewBlock(data)
+		block := blockformat.NewBlock(data)
 
 		c := block.Cid()
 

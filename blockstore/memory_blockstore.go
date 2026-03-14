@@ -4,7 +4,7 @@ import (
 	"context"
 
 	boxoblockstore "github.com/ipfs/boxo/blockstore"
-	"github.com/ipfs/go-block-format"
+	blockformat "github.com/ipfs/go-block-format"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 )
@@ -25,7 +25,7 @@ func NewInMemoryBlockstore() *InMemoryBlockstore {
 }
 
 // AddBlocksFromFile allows adding multiple blocks to the blockstore
-func (b *InMemoryBlockstore) AddBlocksFromFile(blocks []blocks.Block, ctx context.Context) error {
+func (b *InMemoryBlockstore) AddBlocksFromFile(ctx context.Context, blocks []blockformat.Block) error {
 	for _, blk := range blocks {
 		if err := b.Blockstore.Put(ctx, blk); err != nil {
 			return err

@@ -257,10 +257,15 @@ func (h CarHeader) Matches(other CarHeader) bool {
 		return h.Roots[0].Equals(other.Roots[0])
 	}
 
-	// Check other contains all roots.
-	// TODO: should this be optimised for cases where the number of roots are large since it has O(N^2) complexity?
+	// Check other contains all roots with correct multiplicity using a frequency map (O(N) instead of O(N^2))
+	rootCounts := make(map[string]int)
 	for _, r := range h.Roots {
-		if !other.containsRoot(r) {
+		rootCounts[r.String()]++
+	}
+	for _, or := range other.Roots {
+		key := or.String()
+		rootCounts[key]--
+		if rootCounts[key] < 0 {
 			return false
 		}
 	}
