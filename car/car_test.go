@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.lumeweb.com/ipfs-content/internal/carv1"
-	"go.lumeweb.com/ipfs-content/unixfs"
 )
+
+// smallTestMemoryLimit is the memory limit for tests that verify LRU eviction behavior.
+const smallTestMemoryLimit = 10 * 1024 // 10KB to trigger eviction in tests
 
 // getTestContent returns test content string from env or fallback
 func getTestContent(suffix string) string {
@@ -25,6 +27,16 @@ func getTestContent(suffix string) string {
 		return content
 	}
 	return "content " + suffix
+}
+
+// newTestCARBuilder creates a CARBuilder for testing with optional memory limit.
+// If maxMemory is 0, DefaultMemoryLimit is used.
+func newTestCARBuilder(t *testing.T, maxMemory uint64) *CARBuilder {
+	t.Helper()
+	if maxMemory == 0 {
+		maxMemory = DefaultMemoryLimit
+	}
+	return newCARBuilder(maxMemory)
 }
 
 // TestBuildTreeSummary tests the CARBuilder.BuildSummary function
@@ -80,9 +92,8 @@ func TestBuildTreeSummary(t *testing.T) {
 			ctx := context.Background()
 			filesystem := getTestFilesystem(idx)
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 			summary, err := builder.BuildSummary(ctx, filesystem, tt.wrapInDir)
 
 			if tt.expectError {
@@ -171,9 +182,8 @@ func TestCalculateCARSize_EmptyDirectories(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, true)
 			assert.NoError(t, err)
@@ -197,9 +207,8 @@ func TestBuildTreeSummary_ContextCancellation(t *testing.T) {
 			"file.txt": {Data: []byte("content")},
 		}
 
-		bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-		generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-		builder := NewCARBuilder(bs, dagService, generator)
+		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 		_, err := builder.BuildSummary(ctx, filesystem, true)
 		assert.NoError(t, err)
@@ -214,9 +223,8 @@ func TestBuildTreeSummary_ContextCancellation(t *testing.T) {
 			"file.txt": {Data: []byte("content")},
 		}
 
-		bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-		generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-		builder := NewCARBuilder(bs, dagService, generator)
+		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 		_, err := builder.BuildSummary(ctx, filesystem, true)
 		assert.Error(t, err)
@@ -232,9 +240,8 @@ func TestBuildTreeSummary_LargeFile(t *testing.T) {
 		"largefile.bin": {Data: []byte{1}},
 	}
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
 	assert.NoError(t, err)
@@ -264,9 +271,8 @@ func TestWriteCARv1FromSummary(t *testing.T) {
 				filesystem["file2.txt"] = &fstest.MapFile{Data: []byte("content2")}
 			}
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 			_, err := builder.BuildSummary(ctx, filesystem, true)
 			require.NoError(t, err)
@@ -293,9 +299,8 @@ func TestWriteCARv1FromSummary_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	var buf bytes.Buffer
 	err := builder.WriteCAR(ctx, &buf)
@@ -374,9 +379,8 @@ func TestWriteCAR(t *testing.T) {
 			"file.txt": {Data: []byte("hello world")},
 		}
 
-		bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-		generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-		builder := NewCARBuilder(bs, dagService, generator)
+		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 		_, err := builder.BuildSummary(ctx, filesystem, true)
 		require.NoError(t, err)
 
@@ -398,9 +402,8 @@ func TestWriteCAR_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	var buf bytes.Buffer
 	err := builder.WriteCAR(ctx, &buf)
@@ -437,9 +440,8 @@ func TestRoundTripCAR(t *testing.T) {
 				filesystem["dir2/file3.txt"] = &fstest.MapFile{Data: []byte("file3")}
 			}
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 			summary, err := builder.BuildSummary(ctx, filesystem, true)
 			require.NoError(t, err)
@@ -500,9 +502,8 @@ func TestRoundTripCAR_WriteCAR(t *testing.T) {
 		"file.txt": {Data: []byte("hello world")},
 	}
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 	_, err := builder.BuildSummary(ctx, filesystem, true)
 	require.NoError(t, err)
 
@@ -527,9 +528,8 @@ func TestRoundTripCAR_VerifyAllData(t *testing.T) {
 		"file.txt": {Data: []byte(testContent)},
 	}
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
 	require.NoError(t, err)
@@ -556,9 +556,8 @@ func TestRoundTripCAR_ContextCancellation(t *testing.T) {
 		"file.txt": {Data: []byte("hello")},
 	}
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	_, err := builder.BuildSummary(ctx, filesystem, true)
 	assert.Error(t, err)
@@ -577,9 +576,8 @@ func TestRoundTripCAR_LargeDataset(t *testing.T) {
 		"file5.txt": {Data: []byte(getTestContent("5"))},
 	}
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
 	require.NoError(t, err)
@@ -592,9 +590,8 @@ func TestRoundTripCAR_LargeDataset(t *testing.T) {
 func GetSummary(t *testing.T, ctx context.Context, filesystem fs.FS, wrapInDir bool) *TreeSummary {
 	t.Helper()
 
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
 	require.NoError(t, err)
@@ -635,9 +632,8 @@ func TestWriteCAR_VerifiesBlockRegeneration(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	bs, dagService := NewDAGServiceWithMemoryLimit(10 * 1024)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, smallTestMemoryLimit)
+
 
 	filesystem := fstest.MapFS{
 		"dir/file.txt": {Data: []byte("hello world")},
@@ -672,9 +668,8 @@ func TestWriteCAR_NilSummary(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 
 	var buf bytes.Buffer
 	err := builder.WriteCAR(ctx, &buf)
@@ -785,9 +780,8 @@ func TestCalculateCARSize_ActualSizeComparison(t *testing.T) {
 			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, DefaultMemoryLimit, tt.wrapInDir)
 			require.NoError(t, err)
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, tt.wrapInDir)
 			require.NoError(t, err)
 			calculatedSize, err := CalculateCARSize(summary)
@@ -847,9 +841,8 @@ func TestCalculateCARSize_StreamCARWithSizeIntegration(t *testing.T) {
 			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, DefaultMemoryLimit, tt.wrapInDir)
 			require.NoError(t, err)
 
-			bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-			generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-			builder := NewCARBuilder(bs, dagService, generator)
+			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, tt.wrapInDir)
 			require.NoError(t, err)
 			calculatedSize, err := CalculateCARSize(summary)
@@ -872,13 +865,7 @@ func TestNewCARBuilder_WithNilParameters(t *testing.T) {
 	})
 
 	t.Run("initializes_with_non-nil_parameters", func(t *testing.T) {
-		bs, dagService := NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
-		generator := unixfs.NewUnixFSNodeGenerator(
-			unixfs.WithUnixFSNodeDAGService(dagService),
-			unixfs.WithUnixFSNodeBlockstore(bs),
-		)
-
-		builder := NewCARBuilder(bs, dagService, generator)
+		builder := newTestCARBuilder(t, 0)
 		assert.NotNil(t, builder)
 		assert.NotNil(t, builder.bs)
 		assert.NotNil(t, builder.dagService)
