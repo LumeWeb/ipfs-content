@@ -30,3 +30,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Aider Desk
+.aider-desk/
+.aider.input.history
+# .idea/
+# .vscode/
