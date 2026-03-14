@@ -9,7 +9,7 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 
-	internalio "github.com/lumeweb/ipfs-content/internal/io"
+	internalio "go.lumeweb.com/ipfs-content/internal/io"
 )
 
 var ErrSectionTooLarge = errors.New("invalid section data, length of read beyond allowable maximum")

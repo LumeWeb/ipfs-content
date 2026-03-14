@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/h2non/filetype"
-	"github.com/lumeweb/ipfs-content/archive/internal"
+	"go.lumeweb.com/ipfs-content/archive/internal"
 	"github.com/mholt/archives"
 	"github.com/samber/lo"
 )

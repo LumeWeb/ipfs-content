@@ -16,10 +16,10 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/samber/lo"
 
-	"github.com/lumeweb/ipfs-content/internal/carv1"
-	"github.com/lumeweb/ipfs-content/internal/encoding"
-	internalio "github.com/lumeweb/ipfs-content/internal/io"
-	"github.com/lumeweb/ipfs-content/unixfs"
+	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/encoding"
+	internalio "go.lumeweb.com/ipfs-content/internal/io"
+	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 const ROOT = "ROOT"

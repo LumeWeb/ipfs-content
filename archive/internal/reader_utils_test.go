@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/lumeweb/ipfs-content/archive/internal"
+	"go.lumeweb.com/ipfs-content/archive/internal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

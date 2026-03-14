@@ -4,7 +4,7 @@ template-data:
 filename: "{{.InterfaceName}}.go"
 include-auto-generated: true
 packages:
-  github.com/lumeweb/ipfs-content/archive:
+  go.lumeweb.com/ipfs-content/archive:
     config:
       dir: ./archive/mocks
       pkgname: "mocks"
