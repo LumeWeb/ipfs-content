@@ -14,7 +14,7 @@ This library provides a comprehensive set of tools for working with IPFS content
 ## Installation
 
 ```bash
-go get github.com/lumeweb/ipfs-content
+go get go.lumeweb.com/ipfs-content
 ```
 
 ## Packages
@@ -40,7 +40,7 @@ The CAR package uses a two-pass generation strategy:
 This approach allows pre-calculating the CAR size without storing all blocks in memory.
 
 ```go
-import "github.com/lumeweb/ipfs-content/car"
+import "go.lumeweb.com/ipfs-content/car"
 
 // Simple CAR streaming
 rootCID, err := car.StreamCAR(ctx, os.DirFS("./content"), writer, 100*1024*1024, true)
@@ -67,7 +67,7 @@ Memory-based IPFS block storage with configurable memory limits.
 - `NewInMemoryBlockstore()` — Create an unbounded in-memory blockstore
 
 ```go
-import "github.com/lumeweb/ipfs-content/blockstore"
+import "go.lumeweb.com/ipfs-content/blockstore"
 
 // LRU blockstore with 100MB limit
 store := blockstore.NewLRUBlockstore(100 * 1024 * 1024)
@@ -107,8 +107,8 @@ type UnixFSNodeGenerator interface {
 **Options Pattern:**
 
 ```go
-import "github.com/lumeweb/ipfs-content/unixfs"
-import "github.com/lumeweb/ipfs-content/car"
+import "go.lumeweb.com/ipfs-content/unixfs"
+import "go.lumeweb.com/ipfs-content/car"
 
 // Create with custom components
 generator := unixfs.NewUnixFSNodeGenerator(
@@ -159,7 +159,7 @@ type ArchiveExtractor interface {
 ```
 
 ```go
-import "github.com/lumeweb/ipfs-content/archive"
+import "go.lumeweb.com/ipfs-content/archive"
 
 // Detect and extract archive
 format, err := archive.DetectFormat(reader)
@@ -210,7 +210,7 @@ const (
 - `ParseFormat(s string) Format` — Parse string to Format
 
 ```go
-import "github.com/lumeweb/ipfs-content/format"
+import "go.lumeweb.com/ipfs-content/format"
 
 if format.IsArchiveFormat() {
     // Extract archive contents
@@ -230,7 +230,7 @@ Path validation and component validation utilities.
 **Path Validation:**
 
 ```go
-import "github.com/lumeweb/ipfs-content/validation"
+import "go.lumeweb.com/ipfs-content/validation"
 
 // Validate archive paths to prevent zip-slip attacks
 err := validation.ValidateArchivePath("path/within/archive")
@@ -267,7 +267,7 @@ Retry logic with configurable backoff strategies.
 - `OptionsWithConfig(ctx, cfg OptionsConfig)` — Custom retry settings
 
 ```go
-import "github.com/lumeweb/ipfs-content/retry"
+import "go.lumeweb.com/ipfs-content/retry"
 import "github.com/avast/retry-go/v4"
 
 // Default retry (3 attempts, exponential backoff with 5s max jitter, 30s max delay)
@@ -303,7 +303,7 @@ HTTP client factory with sensible defaults and options.
 **Options:**
 
 ```go
-import "github.com/lumeweb/ipfs-content/httpclient"
+import "go.lumeweb.com/ipfs-content/httpclient"
 
 // Create client with custom options
 client := httpclient.CreateDefaultClient(
@@ -376,9 +376,9 @@ import (
     "log"
     "os"
 
-    "github.com/lumeweb/ipfs-content/archive"
-    "github.com/lumeweb/ipfs-content/car"
-    "github.com/lumeweb/ipfs-content/format"
+    "go.lumeweb.com/ipfs-content/archive"
+    "go.lumeweb.com/ipfs-content/car"
+    "go.lumeweb.com/ipfs-content/format"
 )
 
 func main() {

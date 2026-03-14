@@ -15,10 +15,10 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/multiformats/go-varint"
 
-	"github.com/lumeweb/ipfs-content/blockstore"
-	"github.com/lumeweb/ipfs-content/internal/carv1"
-	"github.com/lumeweb/ipfs-content/internal/encoding"
-	"github.com/lumeweb/ipfs-content/unixfs"
+	"go.lumeweb.com/ipfs-content/blockstore"
+	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/encoding"
+	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 // DefaultMemoryLimit is the default memory limit for LRU blockstore operations (100MB).

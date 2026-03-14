@@ -10,7 +10,7 @@ import (
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/multiformats/go-varint"
 
-	internalio "github.com/lumeweb/ipfs-content/internal/io"
+	internalio "go.lumeweb.com/ipfs-content/internal/io"
 )
 
 const DefaultMaxAllowedHeaderSize uint64 = 32 << 20 // 32MiB

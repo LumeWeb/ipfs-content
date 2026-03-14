@@ -8,8 +8,8 @@ import (
 	"context"
 	"io/fs"
 
-	"github.com/lumeweb/ipfs-content/archive"
 	mock "github.com/stretchr/testify/mock"
+	"go.lumeweb.com/ipfs-content/archive"
 )
 
 // NewMockArchiveExtractor creates a new instance of MockArchiveExtractor. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

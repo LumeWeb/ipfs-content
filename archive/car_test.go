@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	carv1 "github.com/lumeweb/ipfs-content/internal/carv1"
+	carv1 "go.lumeweb.com/ipfs-content/internal/carv1"
 )
 
 // CarTestSuite provides a suite for CAR-related tests

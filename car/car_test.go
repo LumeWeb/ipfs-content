@@ -19,10 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/lumeweb/ipfs-content/internal/carv1"
-	"github.com/lumeweb/ipfs-content/internal/encoding"
-	"github.com/lumeweb/ipfs-content/blockstore"
-	"github.com/lumeweb/ipfs-content/unixfs"
+	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/encoding"
+	"go.lumeweb.com/ipfs-content/blockstore"
+	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 // getTestContent returns test content string from env or fallback
