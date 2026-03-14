@@ -305,11 +305,13 @@ HTTP client factory with sensible defaults and options.
 ```go
 import "go.lumeweb.com/ipfs-content/httpclient"
 
-// Create client with custom options
+// Create client with custom options using functional options pattern
 client := httpclient.CreateDefaultClient(
-    httpclient.WithTimeout(60 * time.Second),
-    httpclient.WithKeepAlives(true),
-    httpclient.WithMaxRetries(5),
+    func(opts *httpclient.FactoryOptions) {
+        opts.WithTimeout(60 * time.Second)
+        opts.WithKeepAlives(true)
+        opts.WithMaxRetries(5)
+    },
 )
 
 // Service client factory pattern
