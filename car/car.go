@@ -37,6 +37,18 @@ func NewDAGServiceWithMemoryLimit(memoryLimit uint64) (boxoblockstore.Blockstore
 	return bs, dagService
 }
 
+// newCARBuilder creates a CARBuilder with the configured DAG service and node generator.
+// This is an internal helper that encapsulates the common initialization pattern
+// used across StreamCAR, StreamCARWithSize, and PrepareCAR.
+func newCARBuilder(maxMemory uint64) *CARBuilder {
+	bs, dagService := NewDAGServiceWithMemoryLimit(maxMemory)
+	generator := unixfs.NewUnixFSNodeGenerator(
+		unixfs.WithUnixFSNodeDAGService(dagService),
+		unixfs.WithUnixFSNodeBlockstore(bs),
+	)
+	return NewCARBuilder(bs, dagService, generator)
+}
+
 // StreamCAR is a convenience function that builds a directory tree from the
 // given filesystem and writes it as a CARv1 to the provided writer.
 // If wrapInDir is true, the content will be wrapped in a root directory (default behavior).
@@ -45,10 +57,7 @@ func StreamCAR(ctx context.Context, filesystem fs.FS, w io.Writer, maxMemory uin
 	if err := ctx.Err(); err != nil {
 		return cid.Cid{}, err
 	}
-	bs, dagService := NewDAGServiceWithMemoryLimit(maxMemory)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newCARBuilder(maxMemory)
 	rootCID, err := builder.BuildAndWrite(ctx, filesystem, w, wrapInDir)
 	if err != nil {
 		return cid.Cid{}, fmt.Errorf("build: %w", err)
@@ -65,10 +74,7 @@ func StreamCARWithSize(ctx context.Context, filesystem fs.FS, w io.Writer, maxMe
 	if err := ctx.Err(); err != nil {
 		return cid.Cid{}, 0, err
 	}
-	bs, dagService := NewDAGServiceWithMemoryLimit(maxMemory)
-	generator := unixfs.NewUnixFSNodeGenerator(unixfs.WithUnixFSNodeDAGService(dagService), unixfs.WithUnixFSNodeBlockstore(bs))
-
-	builder := NewCARBuilder(bs, dagService, generator)
+	builder := newCARBuilder(maxMemory)
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return cid.Cid{}, 0, fmt.Errorf("build tree summary: %w", err)
@@ -120,4 +126,30 @@ func CalculateCARSize(summary *TreeSummary) (int64, error) {
 
 	summary.CARSize = headerSize + blocksSize
 	return int64(summary.CARSize), nil
+}
+
+// PrepareCAR returns a CARBuilder and TreeSummary ready for streaming.
+// Use this when you need the CAR size or root CID before writing (e.g., to decide upload method).
+// The caller is responsible for calling builder.WriteCAR() to stream the output.
+//
+// Example:
+//   builder, summary, err := car.PrepareCAR(ctx, filesystem, memoryLimit, wrapInDir)
+//   carSize := car.CalculateCARSize(summary)
+//   // ... decide upload method based on carSize ...
+//   err = builder.WriteCAR(ctx, writer)
+func PrepareCAR(ctx context.Context, filesystem fs.FS, maxMemory uint64, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	builder := newCARBuilder(maxMemory)
+	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return builder, summary, nil
+}
+
+// PrepareCARWithDefaultMemory is a convenience version using 100MB memory limit.
+func PrepareCARWithDefaultMemory(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
+	return PrepareCAR(ctx, filesystem, DefaultMemoryLimit, wrapInDir)
 }
