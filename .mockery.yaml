@@ -1,0 +1,12 @@
+template: testify
+template-data:
+  unroll-variadic: true
+filename: "{{.InterfaceName}}.go"
+include-auto-generated: true
+packages:
+  github.com/lumeweb/ipfs-content/archive:
+    config:
+      dir: ./archive/mocks
+      pkgname: "mocks"
+    interfaces:
+      ArchiveExtractor: {}
