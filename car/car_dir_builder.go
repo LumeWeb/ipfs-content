@@ -35,7 +35,6 @@ type CARBuilder struct {
 	wrapInDir  bool
 	summary    *TreeSummary
 	chunkSize  int64
-	maxMemory  uint64 // Memory limit for blockstores
 }
 
 // TreeSummary contains metadata collected during pass 1.
@@ -60,10 +59,10 @@ type TreeEntry struct {
 }
 
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
-// If bs or dagService is nil, a new LRU blockstore with the default memory limit is created.
+// If bs or dagService is nil, a new LevelBlockStore is created.
 func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, generator unixfs.UnixFSNodeGenerator) *CARBuilder {
 	if bs == nil || dagService == nil {
-		bs, dagService = NewDAGServiceWithMemoryLimit(DefaultMemoryLimit)
+		bs, dagService = NewDAGServiceWithLevelAware()
 	}
 
 	return &CARBuilder{

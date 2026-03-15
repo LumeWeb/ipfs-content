@@ -313,7 +313,25 @@ func (lbs *LevelBlockStore) PutMany(ctx context.Context, blocks []blockformat.Bl
 
 // DeleteBlock removes a block from the blockstore
 func (lbs *LevelBlockStore) DeleteBlock(ctx context.Context, c cid.Cid) error {
-	return lbs.inner.DeleteBlock(ctx, c)
+	lbs.mu.Lock()
+	defer lbs.mu.Unlock()
+
+	if err := lbs.inner.DeleteBlock(ctx, c); err != nil {
+		return err
+	}
+
+	// Clean up metadata if exists
+	if level, exists := lbs.levelMap[c]; exists {
+		delete(lbs.levelMap, c)
+		if cohort, ok := lbs.cohorts[level]; ok {
+			delete(cohort.blockInfo, c)
+			delete(cohort.childrenOf, c)
+			cohort.count--
+		}
+		lbs.blockCount--
+	}
+
+	return nil
 }
 
 // AllKeysChan returns a channel with all block CIDs

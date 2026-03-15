@@ -39,8 +39,8 @@ func main() {
 	defer carFile1.Close()
 	defer os.Remove(carFile1.Name())
 
-	// Stream CAR with 100MB memory limit
-	rootCID, err := car.StreamCAR(ctx, os.DirFS(tmpDir), carFile1, 100*1024*1024, true)
+	// Stream CAR
+	rootCID, err := car.StreamCAR(ctx, os.DirFS(tmpDir), carFile1, true)
 	if err != nil {
 		log.Fatalf("Failed to stream CAR: %v", err)
 	}
@@ -56,7 +56,7 @@ func main() {
 	defer os.Remove(carFile2.Name())
 
 	// Stream CAR with size pre-calculation (useful for TUS uploads)
-	rootCID, carSize, err := car.StreamCARWithSize(ctx, os.DirFS(tmpDir), carFile2, 100*1024*1024, true)
+	rootCID, carSize, err := car.StreamCARWithSize(ctx, os.DirFS(tmpDir), carFile2, true)
 	if err != nil {
 		log.Fatalf("Failed to stream CAR with size: %v", err)
 	}
@@ -66,7 +66,7 @@ func main() {
 	fmt.Println("\nExample 3: Size Calculation Before Streaming")
 
 	// First pass: build builder and summary
-	builder, summary, err := car.PrepareCAR(ctx, os.DirFS(tmpDir), 100*1024*1024, true)
+	builder, summary, err := car.PrepareCAR(ctx, os.DirFS(tmpDir), true)
 	if err != nil {
 		log.Fatalf("Failed to build summary: %v", err)
 	}
@@ -103,7 +103,7 @@ func main() {
 	defer carFile3.Close()
 	defer os.Remove(carFile3.Name())
 
-	rootCID, err = car.StreamCAR(ctx, os.DirFS(tmpDir), carFile3, 100*1024*1024, true)
+	rootCID, err = car.StreamCAR(ctx, os.DirFS(tmpDir), carFile3, true)
 	if err != nil {
 		log.Fatalf("Failed to stream CAR: %v", err)
 	}
