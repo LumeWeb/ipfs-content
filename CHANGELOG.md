@@ -1,3 +1,10 @@
+## 0.1.2 (2026-03-15)
+
+### Fixes
+
+- implement LevelBlockStore for DAG-aware block management
+- address PR review feedback for LevelBlockStore
+
 ## 0.1.1 (2026-03-14)
 
 ### Features
