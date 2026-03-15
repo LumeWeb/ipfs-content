@@ -9,13 +9,151 @@ import (
 	"os"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.lumeweb.com/ipfs-content/blockstore"
 	"go.lumeweb.com/ipfs-content/internal/carv1"
 )
+
+// ============================
+// Test-only BytesFS Implementation
+// ============================
+
+// testBytesFS is a test-only filesystem wrapper for byte slices.
+// Similar to ipfs-sdk/fs/bytesfs.go but simplified for regression tests.
+type testBytesFS struct {
+	data     []byte
+	filename string
+}
+
+// newTestBytesFS creates a test filesystem with a single file.
+func newTestBytesFS(data []byte, filename string) *testBytesFS {
+	return &testBytesFS{data: data, filename: filename}
+}
+
+// Open implements fs.FS.Open.
+func (b *testBytesFS) Open(name string) (fs.File, error) {
+	if name == "." {
+		return &testBytesDir{filename: b.filename, size: int64(len(b.data))}, nil
+	}
+	if name == b.filename {
+		return &testBytesFile{name: b.filename, data: b.data}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+// testBytesFile implements fs.File for a single byte slice.
+type testBytesFile struct {
+	name string
+	data []byte
+	pos  int64
+}
+
+func (f *testBytesFile) Stat() (fs.FileInfo, error) {
+	return &testBytesFileInfo{size: int64(len(f.data)), isDir: false}, nil
+}
+
+func (f *testBytesFile) Read(p []byte) (int, error) {
+	if f.pos >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.data[f.pos:])
+	f.pos += int64(n)
+	return n, nil
+}
+
+func (f *testBytesFile) Close() error {
+	return nil
+}
+
+// Seek implements io.Seeker for repositioning within the file.
+// This supports the two-pass CAR generation pattern where files need to be reopened.
+func (f *testBytesFile) Seek(offset int64, whence int) (int64, error) {
+	var newOffset int64
+
+	switch whence {
+	case io.SeekStart:
+		newOffset = offset
+	case io.SeekCurrent:
+		newOffset = f.pos + offset
+	case io.SeekEnd:
+		newOffset = int64(len(f.data)) + offset
+	default:
+		return 0, fmt.Errorf("invalid whence parameter")
+	}
+
+	if newOffset < 0 {
+		newOffset = 0
+	}
+
+	f.pos = newOffset
+	return newOffset, nil
+}
+
+// testBytesDir implements fs.File and fs.ReadDirFile for a directory.
+type testBytesDir struct {
+	filename string
+	size     int64
+	offset   int
+}
+
+func (d *testBytesDir) Stat() (fs.FileInfo, error) {
+	return &testBytesFileInfo{size: 0, isDir: true}, nil
+}
+
+func (d *testBytesDir) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (d *testBytesDir) Close() error {
+	return nil
+}
+
+func (d *testBytesDir) Seek(offset int64, whence int) (int64, error) {
+	return 0, fmt.Errorf("seek not supported on directories")
+}
+
+func (d *testBytesDir) ReadDir(n int) ([]fs.DirEntry, error) {
+	if d.offset >= 1 {
+		return nil, io.EOF
+	}
+	d.offset++
+	return []fs.DirEntry{&testBytesDirEntry{name: d.filename, size: d.size}}, nil
+}
+
+// testBytesFileInfo implements fs.FileInfo.
+type testBytesFileInfo struct {
+	size  int64
+	isDir bool
+}
+
+func (fi *testBytesFileInfo) Name() string       { return "" }
+func (fi *testBytesFileInfo) Size() int64        { return fi.size }
+func (fi *testBytesFileInfo) Mode() fs.FileMode  { return 0644 }
+func (fi *testBytesFileInfo) ModTime() time.Time { return time.Time{} }
+func (fi *testBytesFileInfo) IsDir() bool        { return fi.isDir }
+func (fi *testBytesFileInfo) Sys() any           { return nil }
+
+// testBytesDirEntry implements fs.DirEntry.
+type testBytesDirEntry struct {
+	name string
+	size int64
+}
+
+func (de *testBytesDirEntry) Name() string      { return de.name }
+func (de *testBytesDirEntry) Type() fs.FileMode { return 0 }
+func (de *testBytesDirEntry) Info() (fs.FileInfo, error) {
+	return &testBytesFileInfo{size: de.size, isDir: false}, nil
+}
+func (de *testBytesDirEntry) IsDir() bool {
+	return false
+}
+
+// ============================
 
 // smallTestMemoryLimit is the memory limit for tests that verify LRU eviction behavior.
 const smallTestMemoryLimit = 10 * 1024 // 10KB to trigger eviction in tests
@@ -29,14 +167,10 @@ func getTestContent(suffix string) string {
 	return "content " + suffix
 }
 
-// newTestCARBuilder creates a CARBuilder for testing with optional memory limit.
-// If maxMemory is 0, DefaultMemoryLimit is used.
-func newTestCARBuilder(t *testing.T, maxMemory uint64) *CARBuilder {
+// newTestCARBuilder creates a CARBuilder for testing.
+func newTestCARBuilder(t *testing.T) *CARBuilder {
 	t.Helper()
-	if maxMemory == 0 {
-		maxMemory = DefaultMemoryLimit
-	}
-	return newCARBuilder(maxMemory)
+	return newCARBuilder()
 }
 
 // TestBuildTreeSummary tests the CARBuilder.BuildSummary function
@@ -92,7 +226,7 @@ func TestBuildTreeSummary(t *testing.T) {
 			ctx := context.Background()
 			filesystem := getTestFilesystem(idx)
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 			summary, err := builder.BuildSummary(ctx, filesystem, tt.wrapInDir)
 
@@ -182,7 +316,7 @@ func TestCalculateCARSize_EmptyDirectories(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, true)
@@ -207,7 +341,7 @@ func TestBuildTreeSummary_ContextCancellation(t *testing.T) {
 			"file.txt": {Data: []byte("content")},
 		}
 
-		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+		builder := newTestCARBuilder(t)
 
 
 		_, err := builder.BuildSummary(ctx, filesystem, true)
@@ -223,7 +357,7 @@ func TestBuildTreeSummary_ContextCancellation(t *testing.T) {
 			"file.txt": {Data: []byte("content")},
 		}
 
-		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+		builder := newTestCARBuilder(t)
 
 
 		_, err := builder.BuildSummary(ctx, filesystem, true)
@@ -240,7 +374,7 @@ func TestBuildTreeSummary_LargeFile(t *testing.T) {
 		"largefile.bin": {Data: []byte{1}},
 	}
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
@@ -271,7 +405,7 @@ func TestWriteCARv1FromSummary(t *testing.T) {
 				filesystem["file2.txt"] = &fstest.MapFile{Data: []byte("content2")}
 			}
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 
 			_, err := builder.BuildSummary(ctx, filesystem, true)
@@ -299,7 +433,7 @@ func TestWriteCARv1FromSummary_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	var buf bytes.Buffer
@@ -341,7 +475,7 @@ func TestStreamCAR(t *testing.T) {
 			}
 
 			var buf bytes.Buffer
-			rootCID, err := StreamCAR(ctx, filesystem, &buf, DefaultMemoryLimit, tt.wrapInDir)
+			rootCID, err := StreamCAR(ctx, filesystem, &buf, tt.wrapInDir)
 			assert.NoError(t, err)
 			assert.NotEqual(t, cid.Undef, rootCID)
 
@@ -365,7 +499,7 @@ func TestStreamCAR_ContextCancellation(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	_, err := StreamCAR(ctx, filesystem, &buf, DefaultMemoryLimit, true)
+	_, err := StreamCAR(ctx, filesystem, &buf, true)
 	assert.Error(t, err)
 }
 
@@ -379,7 +513,7 @@ func TestWriteCAR(t *testing.T) {
 			"file.txt": {Data: []byte("hello world")},
 		}
 
-		builder := newTestCARBuilder(t, DefaultMemoryLimit)
+		builder := newTestCARBuilder(t)
 
 		_, err := builder.BuildSummary(ctx, filesystem, true)
 		require.NoError(t, err)
@@ -402,7 +536,7 @@ func TestWriteCAR_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	var buf bytes.Buffer
@@ -440,7 +574,7 @@ func TestRoundTripCAR(t *testing.T) {
 				filesystem["dir2/file3.txt"] = &fstest.MapFile{Data: []byte("file3")}
 			}
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 
 			summary, err := builder.BuildSummary(ctx, filesystem, true)
@@ -482,7 +616,7 @@ func TestRoundTripCAR_StreamCAR(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rootCID, err := StreamCAR(ctx, filesystem, &buf, DefaultMemoryLimit, true)
+	rootCID, err := StreamCAR(ctx, filesystem, &buf, true)
 	require.NoError(t, err)
 
 	carReader, err := carv1.NewCarReader(&buf)
@@ -502,7 +636,7 @@ func TestRoundTripCAR_WriteCAR(t *testing.T) {
 		"file.txt": {Data: []byte("hello world")},
 	}
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 	_, err := builder.BuildSummary(ctx, filesystem, true)
 	require.NoError(t, err)
@@ -528,7 +662,7 @@ func TestRoundTripCAR_VerifyAllData(t *testing.T) {
 		"file.txt": {Data: []byte(testContent)},
 	}
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
@@ -556,7 +690,7 @@ func TestRoundTripCAR_ContextCancellation(t *testing.T) {
 		"file.txt": {Data: []byte("hello")},
 	}
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	_, err := builder.BuildSummary(ctx, filesystem, true)
@@ -576,7 +710,7 @@ func TestRoundTripCAR_LargeDataset(t *testing.T) {
 		"file5.txt": {Data: []byte(getTestContent("5"))},
 	}
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
@@ -590,7 +724,7 @@ func TestRoundTripCAR_LargeDataset(t *testing.T) {
 func GetSummary(t *testing.T, ctx context.Context, filesystem fs.FS, wrapInDir bool) *TreeSummary {
 	t.Helper()
 
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
@@ -632,7 +766,7 @@ func TestWriteCAR_VerifiesBlockRegeneration(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	builder := newTestCARBuilder(t, smallTestMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	filesystem := fstest.MapFS{
@@ -668,7 +802,7 @@ func TestWriteCAR_NilSummary(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	builder := newTestCARBuilder(t, DefaultMemoryLimit)
+	builder := newTestCARBuilder(t)
 
 
 	var buf bytes.Buffer
@@ -777,10 +911,10 @@ func TestCalculateCARSize_ActualSizeComparison(t *testing.T) {
 			ctx := context.Background()
 
 			var carBuf bytes.Buffer
-			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, DefaultMemoryLimit, tt.wrapInDir)
+			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, tt.wrapInDir)
 			require.NoError(t, err)
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, tt.wrapInDir)
 			require.NoError(t, err)
@@ -801,7 +935,7 @@ func TestStreamCARWithSize_ErrorPaths(t *testing.T) {
 		var buf bytes.Buffer
 		filesystem := fstest.MapFS{}
 
-		_, _, err := StreamCARWithSize(ctx, filesystem, &buf, DefaultMemoryLimit, true)
+		_, _, err := StreamCARWithSize(ctx, filesystem, &buf, true)
 		require.NoError(t, err)
 	})
 }
@@ -838,10 +972,10 @@ func TestCalculateCARSize_StreamCARWithSizeIntegration(t *testing.T) {
 			ctx := context.Background()
 
 			var carBuf bytes.Buffer
-			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, DefaultMemoryLimit, tt.wrapInDir)
+			_, streamCARSize, err := StreamCARWithSize(ctx, tt.filesystem, &carBuf, tt.wrapInDir)
 			require.NoError(t, err)
 
-			builder := newTestCARBuilder(t, DefaultMemoryLimit)
+			builder := newTestCARBuilder(t)
 
 			summary, err := builder.BuildSummary(ctx, tt.filesystem, tt.wrapInDir)
 			require.NoError(t, err)
@@ -865,7 +999,7 @@ func TestNewCARBuilder_WithNilParameters(t *testing.T) {
 	})
 
 	t.Run("initializes_with_non-nil_parameters", func(t *testing.T) {
-		builder := newTestCARBuilder(t, 0)
+		builder := newTestCARBuilder(t)
 		assert.NotNil(t, builder)
 		assert.NotNil(t, builder.bs)
 		assert.NotNil(t, builder.dagService)
@@ -881,7 +1015,6 @@ func TestPrepareCAR(t *testing.T) {
 		name       string
 		filesystem fstest.MapFS
 		wrapInDir  bool
-		maxMemory  uint64
 		check      func(*testing.T, *CARBuilder, *TreeSummary)
 	}{
 		{
@@ -890,7 +1023,6 @@ func TestPrepareCAR(t *testing.T) {
 				"file.txt": {Data: []byte("hello world")},
 			},
 			wrapInDir:  true,
-			maxMemory:  DefaultMemoryLimit,
 			check: func(t *testing.T, builder *CARBuilder, summary *TreeSummary) {
 				assert.NotNil(t, builder)
 				assert.NotNil(t, summary)
@@ -906,7 +1038,6 @@ func TestPrepareCAR(t *testing.T) {
 				"file3.txt": {Data: []byte(getTestContent("3"))},
 			},
 			wrapInDir:  true,
-			maxMemory:  DefaultMemoryLimit,
 			check: func(t *testing.T, builder *CARBuilder, summary *TreeSummary) {
 				assert.NotNil(t, builder)
 				assert.NotNil(t, summary)
@@ -915,12 +1046,11 @@ func TestPrepareCAR(t *testing.T) {
 			},
 		},
 		{
-			name: "custom memory limit",
+			name: "single_file_2",
 			filesystem: fstest.MapFS{
 				"file.txt": {Data: []byte("hello")},
 			},
 			wrapInDir:  true,
-			maxMemory:  50 * 1024 * 1024,
 			check: func(t *testing.T, builder *CARBuilder, summary *TreeSummary) {
 				assert.NotNil(t, builder)
 				assert.NotNil(t, summary)
@@ -933,7 +1063,6 @@ func TestPrepareCAR(t *testing.T) {
 				"file.txt": {Data: []byte("hello")},
 			},
 			wrapInDir:  false,
-			maxMemory:  DefaultMemoryLimit,
 			check: func(t *testing.T, builder *CARBuilder, summary *TreeSummary) {
 				assert.NotNil(t, builder)
 				assert.NotNil(t, summary)
@@ -947,7 +1076,7 @@ func TestPrepareCAR(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			builder, summary, err := PrepareCAR(ctx, tt.filesystem, tt.maxMemory, tt.wrapInDir)
+			builder, summary, err := PrepareCAR(ctx, tt.filesystem, tt.wrapInDir)
 			assert.NoError(t, err)
 			if tt.check != nil {
 				tt.check(t, builder, summary)
@@ -968,7 +1097,7 @@ func TestPrepareCAR_ContextCancellation(t *testing.T) {
 			"file.txt": {Data: []byte("test")},
 		}
 
-		builder, summary, err := PrepareCAR(ctx, filesystem, DefaultMemoryLimit, true)
+		builder, summary, err := PrepareCAR(ctx, filesystem, true)
 		assert.Error(t, err)
 		assert.Nil(t, builder)
 		assert.Nil(t, summary)
@@ -986,7 +1115,7 @@ func TestPrepareCAR_IntegrationWithCalculateCARSize(t *testing.T) {
 			"file2.txt": {Data: []byte("content 2")},
 		}
 
-		builder, summary, err := PrepareCAR(ctx, filesystem, DefaultMemoryLimit, true)
+		builder, summary, err := PrepareCAR(ctx, filesystem, true)
 		require.NoError(t, err)
 
 		calcSize, err := CalculateCARSize(summary)
@@ -1000,39 +1129,135 @@ func TestPrepareCAR_IntegrationWithCalculateCARSize(t *testing.T) {
 	})
 }
 
-// TestPrepareCARWithDefaultMemory tests the PrepareCARWithDefaultMemory convenience function
-func TestPrepareCARWithDefaultMemory(t *testing.T) {
+// ==============================
+// Regression Tests for LRU Eviction Bug
+// ==============================
+
+const (
+	lruEvictionTestChunkSize = int64(256 * 1024) // 256KB chunks
+)
+
+// TestWriteCAR_BlockRegenerationNoLRUEviction is a regression test for the bug where
+// block regeneration would fail with "block not found" errors due to LRU eviction.
+//
+// Bug scenario:
+// - Stage 1 (BuildSummary): Creates ~102 blocks (1MB per chunk for 100MB file)
+// - Stage 2 (WriteCAR):  LRU blockstore limits to 100 blocks
+// - When block #1 needs regeneration: recreates 102 blocks, evicts block #1, fails
+// - Fix: LevelBlockStore tracks DAG levels, no memory-based eviction
+func TestWriteCAR_BlockRegenerationNoLRUEviction(t *testing.T) {
 	t.Parallel()
 
-	t.Run("uses_default_memory_limit", func(t *testing.T) {
-		ctx := context.Background()
-		filesystem := fstest.MapFS{
-			"file.txt": {Data: []byte("hello")},
-		}
+	ctx := context.Background()
 
-		builder, summary, err := PrepareCARWithDefaultMemory(ctx, filesystem, true)
-		assert.NoError(t, err)
-		assert.NotNil(t, builder)
-		assert.NotNil(t, summary)
-		assert.NotEqual(t, cid.Undef, summary.RootCID)
-	})
+	// Create test data that will trigger ~100 blocks
+	chunkSize := lruEvictionTestChunkSize
+	totalDataSize := int64(101) * chunkSize // ~25MB (triggers >100 blocks)
+	testData := make([]byte, totalDataSize)
 
-	t.Run("equivalent_to_PrepareCAR_with_DefaultMemoryLimit", func(t *testing.T) {
-		ctx := context.Background()
-		filesystem := fstest.MapFS{
-			"file1.txt": {Data: []byte("test content")},
-		}
+	for i := 0; i < len(testData); i++ {
+		testData[i] = byte(i % 256)
+	}
 
-		_, summary1, err1 := PrepareCARWithDefaultMemory(ctx, filesystem, true)
-		require.NoError(t, err1)
+	filesystem := newTestBytesFS(testData, "largefile.bin")
 
-		_, summary2, err2 := PrepareCAR(ctx, filesystem, DefaultMemoryLimit, true)
-		require.NoError(t, err2)
+	t.Logf("Regression test setup:")
+	t.Logf("  - Chunk size: %d bytes (%.2f KB)", chunkSize, float64(chunkSize)/1024)
+	t.Logf("  - Data size: %.2f MB", float64(totalDataSize)/(1024*1024))
 
-		assert.Equal(t, summary1.RootCID, summary2.RootCID)
+	// BuildSummary
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
 
-		size1, _ := CalculateCARSize(summary1)
-		size2, _ := CalculateCARSize(summary2)
-		assert.Equal(t, size1, size2)
-	})
+	totalBlocks := len(summary.BlockOrder)
+	t.Logf("  - Total blocks: %d", totalBlocks)
+
+	// testBytesFS supports seeking like real files, ensuring proper two-pass
+	// CAR generation. Just verify we have enough blocks to test CAR generation.
+	// The important part is that WriteCAR completes without "block not found" errors.
+	require.Greater(t, totalBlocks, 10,
+		"Test needs enough blocks to verify regeneration")
+
+	// WriteCAR should not fail with "block not found" error
+	// This verifies LevelBlockStore is working (no LRU eviction)
+	var carBuf bytes.Buffer
+	err = builder.WriteCAR(ctx, &carBuf)
+
+	require.NoError(t, err, "WriteCAR must not fail with 'block not found' error")
+	require.Greater(t, carBuf.Len(), 0, "CAR should contain data")
+
+	t.Logf("  - CAR size: %d bytes (%.2f MB)", carBuf.Len(), float64(carBuf.Len())/(1024*1024))
+	t.Logf("PASS: Block regeneration works without LRU eviction issues")
+}
+
+// TestLevelBlockStore_Integration verifies that newCARBuilder uses LevelBlockStore
+// for stage 2 (WriteCAR) block regeneration - regression test for LRU eviction bug.
+func TestLevelBlockStore_Integration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create CARBuilder using the public API
+	filesystem := newTestBytesFS([]byte("hello world"), "file.txt")
+
+	builder, summary, err := PrepareCAR(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, builder)
+	require.NotNil(t, summary)
+
+	// Verify the blockstore is a LevelBlockStore (not LRUBlockstore)
+	levelBS, ok := builder.bs.(*blockstore.LevelBlockStore)
+	require.True(t, ok, "newCARBuilder should use LevelBlockStore for stage 2")
+	require.NotNil(t, levelBS, "LevelBlockStore must not be nil")
+
+	t.Logf("LevelBlockStore integration verified:")
+	t.Logf("  - Blockstore type: LevelBlockStore")
+	t.Logf("  - Summary blocks: %d", len(summary.BlockOrder))
+	t.Logf("  - Blockstore blocks: %d", levelBS.Len())
+
+	// Verify WriteCAR works with LevelBlockStore
+	var carBuf bytes.Buffer
+	err = builder.WriteCAR(ctx, &carBuf)
+	require.NoError(t, err, "WriteCAR should succeed with LevelBlockStore")
+
+	t.Logf("  - CAR size: %d bytes", carBuf.Len())
+}
+
+// TestWriteCAR_LargeFileNoLRUEviction tests block regeneration with a larger file
+// that would trigger LRU eviction but shouldn't with LevelBlockStore.
+func TestWriteCAR_LargeFileNoLRUEviction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Use smaller chunk size to create more blocks
+	chunkSize := int64(512 * 1024) // 512KB chunks
+	totalDataSize := int64(100) * chunkSize // 50MB should create ~100 blocks
+	testData := make([]byte, totalDataSize)
+
+	for i := 0; i < len(testData); i++ {
+		testData[i] = byte(i % 256)
+	}
+
+	filesystem := newTestBytesFS(testData, "largefile.bin")
+
+	t.Logf("Large file regression test:")
+	t.Logf("  - Data size: %.2f MB", float64(totalDataSize)/(1024*1024))
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+
+	t.Logf("  - Blocks created: %d", len(summary.BlockOrder))
+
+	// WriteCAR should handle block regeneration without LRU issues
+	var carBuf bytes.Buffer
+	err = builder.WriteCAR(ctx, &carBuf)
+
+	require.NoError(t, err, "Large file CAR generation must not fail")
+	require.Greater(t, carBuf.Len(), 0, "CAR should contain data")
+
+	t.Logf("PASS: Large file CAR generation succeeded")
 }

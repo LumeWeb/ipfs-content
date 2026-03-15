@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/docker/go-units"
 	"github.com/ipfs/boxo/blockservice"
 	boxoblockstore "github.com/ipfs/boxo/blockstore"
 	"github.com/ipfs/boxo/exchange/offline"
@@ -22,8 +21,6 @@ import (
 )
 
 // DefaultMemoryLimit is the default memory limit for LRU blockstore operations (100MB).
-const DefaultMemoryLimit = 100 * units.MiB
-
 // NewDAGServiceWithMemoryLimit creates a new LRU blockstore, blockservice, and DAG service trio
 // with the specified memory limit. This is a convenience function for setting up the IPFS
 // DAG infrastructure with memory-constrained block storage.
@@ -37,11 +34,26 @@ func NewDAGServiceWithMemoryLimit(memoryLimit uint64) (boxoblockstore.Blockstore
 	return bs, dagService
 }
 
+// NewDAGServiceWithLevelAware creates a new LevelBlockStore, blockservice, and DAG service
+// trio with the specified memory limit. This provides level-aware storage with cohort-based
+// eviction that tracks parent-child relationships for efficient regeneration.
+//
+// The returned blockstore uses LevelBlockStore which preserves metadata (level relationships)
+// across cohort rotations and a Reset() method to clear data while retaining metadata.
+// This is suitable for two-phase operations where phase 1 builds a summary and phase 2
+// regenerates blocks with level awareness.
+func NewDAGServiceWithLevelAware() (boxoblockstore.Blockstore, format.DAGService) {
+	bs := blockstore.NewLevelBlockStore()
+	bsvc := blockservice.New(bs, offline.Exchange(bs))
+	dagService := merkledag.NewDAGService(bsvc)
+	return bs, dagService
+}
+
 // newCARBuilder creates a CARBuilder with the configured DAG service and node generator.
 // This is an internal helper that encapsulates the common initialization pattern
 // used across StreamCAR, StreamCARWithSize, and PrepareCAR.
-func newCARBuilder(maxMemory uint64) *CARBuilder {
-	bs, dagService := NewDAGServiceWithMemoryLimit(maxMemory)
+func newCARBuilder() *CARBuilder {
+	bs, dagService := NewDAGServiceWithLevelAware()
 	generator := unixfs.NewUnixFSNodeGenerator(
 		unixfs.WithUnixFSNodeDAGService(dagService),
 		unixfs.WithUnixFSNodeBlockstore(bs),
@@ -53,11 +65,11 @@ func newCARBuilder(maxMemory uint64) *CARBuilder {
 // given filesystem and writes it as a CARv1 to the provided writer.
 // If wrapInDir is true, the content will be wrapped in a root directory (default behavior).
 // If wrapInDir is false and there's only one file, the file itself will be the root.
-func StreamCAR(ctx context.Context, filesystem fs.FS, w io.Writer, maxMemory uint64, wrapInDir bool) (cid.Cid, error) {
+func StreamCAR(ctx context.Context, filesystem fs.FS, w io.Writer, wrapInDir bool) (cid.Cid, error) {
 	if err := ctx.Err(); err != nil {
 		return cid.Cid{}, err
 	}
-	builder := newCARBuilder(maxMemory)
+	builder := newCARBuilder()
 	rootCID, err := builder.BuildAndWrite(ctx, filesystem, w, wrapInDir)
 	if err != nil {
 		return cid.Cid{}, fmt.Errorf("build: %w", err)
@@ -70,11 +82,11 @@ func StreamCAR(ctx context.Context, filesystem fs.FS, w io.Writer, maxMemory uin
 // This is useful for TUS uploads where the size must be known upfront.
 // If wrapInDir is true, the content will be wrapped in a root directory (default behavior).
 // If wrapInDir is false and there's only one file, the file itself will be the root.
-func StreamCARWithSize(ctx context.Context, filesystem fs.FS, w io.Writer, maxMemory uint64, wrapInDir bool) (cid.Cid, int64, error) {
+func StreamCARWithSize(ctx context.Context, filesystem fs.FS, w io.Writer, wrapInDir bool) (cid.Cid, int64, error) {
 	if err := ctx.Err(); err != nil {
 		return cid.Cid{}, 0, err
 	}
-	builder := newCARBuilder(maxMemory)
+	builder := newCARBuilder()
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return cid.Cid{}, 0, fmt.Errorf("build tree summary: %w", err)
@@ -133,15 +145,15 @@ func CalculateCARSize(summary *TreeSummary) (int64, error) {
 // The caller is responsible for calling builder.WriteCAR() to stream the output.
 //
 // Example:
-//   builder, summary, err := car.PrepareCAR(ctx, filesystem, memoryLimit, wrapInDir)
+//   builder, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
 //   carSize := car.CalculateCARSize(summary)
 //   // ... decide upload method based on carSize ...
 //   err = builder.WriteCAR(ctx, writer)
-func PrepareCAR(ctx context.Context, filesystem fs.FS, maxMemory uint64, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
+func PrepareCAR(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	builder := newCARBuilder(maxMemory)
+	builder := newCARBuilder()
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return nil, nil, err
@@ -149,7 +161,4 @@ func PrepareCAR(ctx context.Context, filesystem fs.FS, maxMemory uint64, wrapInD
 	return builder, summary, nil
 }
 
-// PrepareCARWithDefaultMemory is a convenience version using 100MB memory limit.
-func PrepareCARWithDefaultMemory(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
-	return PrepareCAR(ctx, filesystem, DefaultMemoryLimit, wrapInDir)
-}
+
