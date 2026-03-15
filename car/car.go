@@ -37,16 +37,36 @@ func NewDAGServiceWithMemoryLimit(memoryLimit uint64) (boxoblockstore.Blockstore
 	return bs, dagService
 }
 
+// NewDAGServiceWithLevelAware creates a new LevelBlockStore, blockservice, and DAG service
+// trio with the specified memory limit. This provides level-aware storage with cohort-based
+// eviction that tracks parent-child relationships for efficient regeneration.
+//
+// The returned blockstore uses LevelBlockStore which preserves metadata (level relationships)
+// across cohort rotations and a Reset() method to clear data while retaining metadata.
+// This is suitable for two-phase operations where phase 1 builds a summary and phase 2
+// regenerates blocks with level awareness.
+func NewDAGServiceWithLevelAware() (boxoblockstore.Blockstore, format.DAGService) {
+	bs := blockstore.NewLevelBlockStore()
+	bsvc := blockservice.New(bs, offline.Exchange(bs))
+	dagService := merkledag.NewDAGService(bsvc)
+	return bs, dagService
+}
+
 // newCARBuilder creates a CARBuilder with the configured DAG service and node generator.
 // This is an internal helper that encapsulates the common initialization pattern
 // used across StreamCAR, StreamCARWithSize, and PrepareCAR.
+//
+// Note: This function now uses LevelBlockStore which tracks DAG level relationships
+// for efficient block regeneration, making LRU fetching irrelevant.
 func newCARBuilder(maxMemory uint64) *CARBuilder {
-	bs, dagService := NewDAGServiceWithMemoryLimit(maxMemory)
+	bs, dagService := NewDAGServiceWithLevelAware()
 	generator := unixfs.NewUnixFSNodeGenerator(
 		unixfs.WithUnixFSNodeDAGService(dagService),
 		unixfs.WithUnixFSNodeBlockstore(bs),
 	)
-	return NewCARBuilder(bs, dagService, generator)
+	builder := NewCARBuilder(bs, dagService, generator)
+	builder.maxMemory = maxMemory // Store for reference, though LevelBlockStore doesn't use it
+	return builder
 }
 
 // StreamCAR is a convenience function that builds a directory tree from the

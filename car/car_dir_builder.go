@@ -35,6 +35,7 @@ type CARBuilder struct {
 	wrapInDir  bool
 	summary    *TreeSummary
 	chunkSize  int64
+	maxMemory  uint64 // Memory limit for blockstores
 }
 
 // TreeSummary contains metadata collected during pass 1.
