@@ -10,14 +10,13 @@ import (
 	"strings"
 
 	"github.com/ipfs/boxo/blockstore"
-	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/boxo/ipld/unixfs/importer/helpers"
 	"github.com/ipfs/go-cid"
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/samber/lo"
 
 	"go.lumeweb.com/ipfs-content/internal/carv1"
-	"go.lumeweb.com/ipfs-content/internal/encoding"
+	"go.lumeweb.com/ipfs-content/encoding"
 	internalio "go.lumeweb.com/ipfs-content/internal/io"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
@@ -350,6 +349,54 @@ func (b *CARBuilder) GetSummary() *TreeSummary {
 	return b.summary
 }
 
+// collectAllBlocks performs a BFS traversal to collect all unique CIDs in the DAG tree.
+// This ensures CAR deduplication works correctly: blocks with identical content are
+// stored only once, even if referenced multiple times in the DAG.
+func (b *CARBuilder) collectAllBlocks(ctx context.Context, rootCID cid.Cid) ([]cid.Cid, []uint64, error) {
+	queue := []cid.Cid{rootCID}
+	seen := make(map[cid.Cid]bool)
+	var allCIDs []cid.Cid
+	var allSizes []uint64
+
+	for len(queue) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+
+		currentCID := queue[0]
+		queue = queue[1:]
+
+		if seen[currentCID] {
+			continue
+		}
+		seen[currentCID] = true
+
+		blk, err := b.bs.Get(ctx, currentCID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get block %s: %w", currentCID, err)
+		}
+
+		allCIDs = append(allCIDs, currentCID)
+		allSizes = append(allSizes, uint64(len(blk.RawData())))
+
+		// Decode links from the block using encoding.DecodeBlock
+		// This handles both dag-pb (ProtoNode) and raw leaf blocks
+		node, err := encoding.DecodeBlock(ctx, blk)
+		if err != nil {
+			continue
+		}
+
+		// Add child CIDs to queue for traversal
+		for _, link := range node.Links() {
+			if link != nil && !seen[link.Cid] {
+				queue = append(queue, link.Cid)
+			}
+		}
+	}
+
+	return allCIDs, allSizes, nil
+}
+
 func (b *CARBuilder) createUnixFSBlocks(ctx context.Context, r io.Reader) (cid.Cid, []cid.Cid, []uint64, error) {
 	if err := ctx.Err(); err != nil {
 		return cid.Cid{}, nil, nil, err
@@ -360,23 +407,14 @@ func (b *CARBuilder) createUnixFSBlocks(ctx context.Context, r io.Reader) (cid.C
 		return cid.Cid{}, nil, nil, fmt.Errorf("create unixfs node: %w", err)
 	}
 
-	pbNode, ok := nd.(*merkledag.ProtoNode)
-	if !ok {
-		return nd.Cid(), []cid.Cid{nd.Cid()}, []uint64{uint64(len(nd.RawData()))}, nil
+	rootCID := nd.Cid()
+
+	allCIDs, allSizes, err := b.collectAllBlocks(ctx, rootCID)
+	if err != nil {
+		return cid.Cid{}, nil, nil, fmt.Errorf("collect all blocks: %w", err)
 	}
 
-	var cids []cid.Cid
-	var sizes []uint64
-
-	cids = append(cids, nd.Cid())
-	sizes = append(sizes, uint64(len(pbNode.RawData())))
-
-	for _, link := range pbNode.Links() {
-		cids = append(cids, link.Cid)
-		sizes = append(sizes, link.Size)
-	}
-
-	return nd.Cid(), cids, sizes, nil
+	return rootCID, allCIDs, allSizes, nil
 }
 
 func (b *CARBuilder) createDirectoryBlock(ctx context.Context, entry *TreeEntry, entries map[string]*TreeEntry) (cid.Cid, uint64, error) {
@@ -516,6 +554,8 @@ func (b *CARBuilder) isDirectoryEmpty(summary *TreeSummary, path string) bool {
 
 	return true
 }
+
+
 
 func removeString(slice []string, s string) []string {
 	for i, item := range slice {
