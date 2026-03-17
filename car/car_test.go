@@ -1118,8 +1118,11 @@ func TestCAR_Deduplication(t *testing.T) {
 			require.GreaterOrEqual(t, len(summary.BlockOrder), 2)
 
 			// Verify WriteCAR succeeds
-			var carBuf bytes.Buffer
-			err = builder.WriteCAR(ctx, &carBuf)
+			carPath := t.TempDir() + "/test.car"
+			carFile, err := os.Create(carPath)
+			require.NoError(t, err)
+			err = builder.WriteCAR(ctx, carFile)
+			carFile.Close()
 			require.NoError(t, err)
 		})
 	}
@@ -1161,8 +1164,11 @@ func TestCAR_NoDeduplication(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify WriteCAR succeeds (tests collectAllBlocks finds all blocks)
-			var carBuf bytes.Buffer
-			err = builder.WriteCAR(ctx, &carBuf)
+			carPath := t.TempDir() + "/test.car"
+			carFile, err := os.Create(carPath)
+			require.NoError(t, err)
+			err = builder.WriteCAR(ctx, carFile)
+			carFile.Close()
 			require.NoError(t, err)
 		})
 	}
