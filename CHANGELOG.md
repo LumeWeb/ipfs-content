@@ -1,3 +1,10 @@
+## 0.1.3 (2026-03-17)
+
+### Fixes
+
+- handle all UnixFS block types in collectAllBlocks
+- propagate decode errors in collectAllBlocks
+
 ## 0.1.2 (2026-03-15)
 
 ### Fixes

@@ -1,4 +1,4 @@
-module go.lumeweb.com/ipfs-content // v0.1.2
+module go.lumeweb.com/ipfs-content // v0.1.3
 
 go 1.26.0
 
