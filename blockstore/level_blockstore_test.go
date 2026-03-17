@@ -222,7 +222,6 @@ func TestGetChildren(t *testing.T) {
 // TestGetAncestors verifies ancestor chain is tracked correctly
 func TestGetAncestors(t *testing.T) {
 	bs := NewLevelBlockStore()
-	t.Logf("testCID1=%v, testCID2=%v, testCID3=%v", testCID1, testCID2, testCID3)
 
 	// Put leaves
 	leaf1 := NewTestBlock(testCID1, testData1)
@@ -241,7 +240,6 @@ func TestGetAncestors(t *testing.T) {
 	// Get ancestors of leaf (should go up to root)
 	ancestors, err := bs.GetAncestors(context.TODO(), testCID1)
 	require.NoError(t, err)
-	t.Logf("Ancestors of leaf1 (%v): %v (%d items)", testCID1, ancestors, len(ancestors))
 	require.Len(t, ancestors, 2)
 	assert.Contains(t, ancestors, testCID2)
 	assert.Contains(t, ancestors, testCID3)

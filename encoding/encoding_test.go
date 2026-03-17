@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToV1(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 
 	"go.lumeweb.com/ipfs-content/blockstore"
 	"go.lumeweb.com/ipfs-content/internal/carv1"
-	"go.lumeweb.com/ipfs-content/internal/encoding"
+	"go.lumeweb.com/ipfs-content/encoding"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
