@@ -383,7 +383,7 @@ func (b *CARBuilder) collectAllBlocks(ctx context.Context, rootCID cid.Cid) ([]c
 		// This handles both dag-pb (ProtoNode) and raw leaf blocks
 		node, err := encoding.DecodeBlock(ctx, blk)
 		if err != nil {
-			continue
+			return nil, nil, fmt.Errorf("decode block %s: %w", currentCID, err)
 		}
 
 		// Add child CIDs to queue for traversal
