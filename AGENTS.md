@@ -68,16 +68,24 @@ This allows streaming with size pre-calculation (critical for TUS uploads where 
 - `StreamCAR()` - Stream CAR data to io.Writer
 - `StreamCARWithSize()` - Stream CAR with pre-calculated size
 - `CalculateCARSize()` - Calculate total CAR file size before writing
+- `PrepareCAR()` - Build CARBuilder and TreeSummary for size pre-calculation and deferred streaming
+- `PrepareCARWithDefaultMemory()` - Prepare CAR with default 100MB memory limit
 - `NewDAGServiceWithMemoryLimit()` - Creates LRU blockstore, blockservice, and DAG service
+- `NewDAGServiceWithLevelAware()` - Creates LevelBlockStore with DAG service for two-phase generation
 
-The package uses an **LRU blockstore** (from `blockstore` package) to limit memory usage with configurable limits.
+The package uses blockstores (from `blockstore` package) to limit memory usage:
+- **LRUBlockstore** for memory-constrained operations
+- **LevelBlockStore** for DAG-heavy operations requiring cohort-based level tracking
 
 #### `blockstore`
 Implements memory-based block storage for IPFS blocks:
 - `LRUBlockstore` - Size-bounded LRU cache (thread-safe, evicts least-recently-used blocks when limit exceeded)
-- `InMemoryBlockstore` - Unbounded in-memory blockstore
+- `InMemoryBlockstore` - Unbounded in-memory blockstore using boxo's map datastore
+- `LevelBlockStore` - DAG-aware blockstore with cohort-based level tracking and rotation
 
 The `LRUBlockstore` uses a doubly-linked list to track usage order and evicts blocks when the total size limit is exceeded. This is critical for CAR generation where you need to limit memory usage.
+
+`LevelBlockStore` tracks DAG depth levels using cohort rotation (default 10 levels) to prevent "block not found" errors during two-phase CAR generation. Uses bidirectional parent-child and ancestor relationship tracking instead of memory-based eviction.
 
 #### `unixfs`
 UnixFS node generation for IPFS. Defines `UnixFSNodeGenerator` interface with methods:
@@ -139,22 +147,50 @@ HTTP client factory for creating configured HTTP clients with retry and timeout 
 
 Options: timeout, max retries, keep-alives, etc.
 
+#### `dagnode`
+IPFS DAG node analysis for content structure identification and metadata extraction. Provides:
+- `AnalyzeNode(ctx, block)` - Analyze IPFS blocks and extract comprehensive metadata (type, links, sizes, UnixFS info)
+- `IsPartialFile(info)` - Determine if a block represents a partial file chunk (240KB-256KB range)
+- `NodeInfo` struct - Memory-efficient binary CID storage with type detection and chunk size tracking
+
+Supports node type detection (raw, protobuf, CBOR), UnixFS metadata extraction, and partial file identification for efficient chunk-based processing.
+
+#### `encoding`
+Public package for IPLD block decoding and CID normalization. Provides:
+- `DecodeBlock(ctx, block)` - Decode IPFS blocks into IPLD nodes using registered codecs
+- `NormalizeCid(cid.Cid)` - Convert CID to version 1 format for consistency across the system
+- `DagCborNodeConverter` - Handle CBOR-encoded blocks for DAG-CBOR decoding
+
+Supports codecs: dag-pb (protobuf), raw data blocks, and dag-cbor for CBOR nodes.
+
+#### `paths`
+IPFS and IPNS path constants for standardized path handling. Provides:
+- `IPFSPathPrefix` - "/ipfs/" prefix for IPFS content paths
+- `IPNSPathPrefix` - "/ipns/" prefix for IPNS content paths
+
+Ensures consistent path handling for IPFS and IPNS URIs across the library.
+
 #### Internal Packages
-- `internal/encoding` - CID normalization utilities (convert v0 to v1)
+- `internal/encoding` - Legacy internal encoding (CID normalization moved to public `encoding` package)
 - `internal/io` - IO utilities (readers, converters, read-seek wrappers)
 - `internal/carv1` - CARv1 format utilities
+- `internal/testing` - Test fixture infrastructure and helpers
 
 ### Package Dependency Relationships
 
 ```
-car → blockstore, unixfs, internal/carv1, internal/encoding
-    → uses LRU blockstore for memory management
+car → blockstore, unixfs, internal/carv1, encoding
+    → uses LRU blockstore or LevelBlockStore for memory management
+    → uses encoding.DecodeBlock for DAG traversal
 unixfs → uses boxo/merkledag, boxo/blockstore
 archive → uses mholt/archives (backend), validation (security)
 format → standalone, used by multiple packages
 validation → standalone, used by archive package
 retry → standalone, used by httpclient and other packages
 httpclient → standalone
+dagnode → encoding (for DecodeBlock, NormalizeCid)
+encoding → standalone, used by car, dagnode, and other packages
+paths → standalone, used by IPFS/IPNS path handling
 ```
 
 ### Key Patterns and Idioms
@@ -165,7 +201,9 @@ func WithUnixFSNodeDAGService(dagService format.DAGService) UnixFSNodeGeneratorO
 func WithTimeout(timeout time.Duration) *FactoryOptions
 ```
 
-**Two-Pass Generation**: CAR file generation uses a two-pass approach to enable size pre-calculation without storing all blocks in memory.
+**Two-Pass Generation**: CAR file generation uses a two-pass approach to enable size pre-calculation without storing all blocks in memory. `PrepareCAR()` enables inspection before streaming for upload method selection.
+
+**DAG-Aware Block Storage**: `LevelBlockStore` uses cohort rotation and bidirectional parent-child tracking instead of LRU eviction. This prevents "block not found" errors during CAR generation by maintaining structured DAG metadata.
 
 **LRU Eviction Blockstore**: The custom `LRUBlockstore` implementation uses a doubly-linked list to track access order and evict blocks when size limit is exceeded.
 
@@ -178,9 +216,11 @@ func WithTimeout(timeout time.Duration) *FactoryOptions
 ## Important Constraints
 
 ### Memory Management
-- Always configure memory limits when generating CAR files via `NewDAGServiceWithMemoryLimit()`
+- Configure memory limits when generating CAR files via `NewDAGServiceWithMemoryLimit()`
+- For DAG-heavy operations, use `NewDAGServiceWithLevelAware()` with `LevelBlockStore` to prevent block eviction
 - Default memory limit is 100MB (`DefaultMemoryLimit`)
 - Use `LRUBlockstore` for bounded memory, `InMemoryBlockstore` only when data size is limited
+- LevelBlockStore uses cohort rotation (default 10 levels) to track DAG depth without eviction
 
 ### Security
 - All archive paths MUST be validated using `validation.ValidateArchivePath()` before processing
@@ -209,6 +249,7 @@ func WithTimeout(timeout time.Duration) *FactoryOptions
 
 ### Dependencies
 - Core IPFS libraries: `github.com/ipfs/boxo`, `github.com/ipfs/go-cid`, etc.
+- IPLD libraries: `github.com/ipld/go-ipld-prime`, `github.com/ipld/go-codec-dagpb`
 - Archive handling: `github.com/mholt/archives`
 - File type detection: `github.com/h2non/filetype`
 - Utilities: `github.com/samber/lo`, `github.com/docker/go-units`
