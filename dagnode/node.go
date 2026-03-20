@@ -32,18 +32,57 @@ const (
 )
 
 type NodeInfo struct {
-	Name       string           // Name of node (e.g., filename within a directory)
-	CIDBytes   []byte           // Binary CID representation (more memory efficient)
-	Type       NodeInfoType     // Type of node (raw, protobuf, cbor, etc.)
-	UnixFSType pb.Data_DataType // UnixFS type (file, directory, symlink, etc.)
-	LinkCIDs   [][]byte         // Binary CIDs of child nodes (more compact than Link structs)
-	LinkNames  []string         // Names of child links (parallel array with LinkCIDs)
-	LinkSizes  []uint64         // Sizes of child links (parallel array with LinkCIDs)
-	IsUnixFS   bool             // Whether the node is a UnixFS node
-	IsFileRoot bool             // Whether the node is the root of a UnixFS file
-	BlockSize  uint64           // Raw, encoded size of block (disk usage)
-	DataSize   uint64           // Size of the data within the node (e.g., file size, metadata size)
-	ChunkSizes []uint64         // Block sizes for UnixFS files (chunk sizes) - renamed for clarity
+	// Identification and type
+	// Node name (e.g., filename within a directory). Empty for non-directory nodes.
+	Name       string
+
+	// Binary CID representation for memory efficiency. Use GetCID() to reconstruct full CID.
+	CIDBytes   []byte
+
+	// Node encoding type: raw, dag-pb (protobuf), dag-cbor, or unknown.
+	Type       NodeInfoType
+
+	// UnixFS node type when IsUnixFS=true: File, Directory, Symlink, etc.
+	UnixFSType pb.Data_DataType
+
+	// Child links (parallel arrays: LinkCIDs[i], LinkNames[i], LinkSizes[i] describe link at index i)
+	// Binary CIDs of child nodes. More compact than full Link structs.
+	LinkCIDs  [][]byte
+
+	// Names corresponding to each LinkCID (e.g., filenames in a directory).
+	LinkNames []string
+
+	// Link-reported sizes of child nodes. May be actual content size or 0 if unknown.
+	LinkSizes []uint64
+
+	// Flags and classification
+	// Whether this node contains UnixFS protobuf data.
+	IsUnixFS   bool
+
+	// Whether this node is the root of a UnixFS file (i.e., has child links for a chunked file).
+	IsFileRoot bool
+
+	// Storage and encoding metrics
+	// BlockSize is the raw byte size of the full encoded IPFS block as stored on disk or transmitted.
+	// For dag-pb nodes, this includes protobuf framing overhead in addition to data payload.
+	BlockSize uint64
+
+	// DataSize is the size of the data payload within the node structure.
+	// For RawNode: raw data payload size within the block
+	// For ProtoNode (UnixFS): size of the serialized UnixFS protobuf metadata (NOT file content)
+	// For CBORNode: raw block data size
+	DataSize uint64
+
+	// UnixFS chunking metadata
+	// ChunkSizes is the list of child block sizes when a UnixFS file is split across multiple blocks.
+	// Only non-empty for UnixFS file roots (IsFileRoot=true).
+	// Example: A 1MB file split into 256KB chunks would have [262144, 262144, 262144, 262144].
+	ChunkSizes []uint64
+
+	// FileSize is the logical byte size of the UnixFS file before chunking, as reported by the file's metadata.
+	// Only set for UnixFS file nodes (IsUnixFS=true and UnixFSType=Data_File).
+	// Example: A file that's split across multiple 256KB blocks still has FileSize=1048576 (the original size).
+	FileSize uint64
 }
 
 func AnalyzeNode(ctx context.Context, block blocks.Block) (*NodeInfo, error) {
@@ -87,6 +126,7 @@ func AnalyzeNode(ctx context.Context, block blocks.Block) (*NodeInfo, error) {
 			info.UnixFSType = fsNode.Type()
 
 			if fsNode.Type() == pb.Data_File {
+				info.FileSize = fsNode.FileSize()
 				info.IsFileRoot = len(info.LinkCIDs) > 0
 				blockSizes := fsNode.BlockSizes()
 				if len(blockSizes) > 0 {

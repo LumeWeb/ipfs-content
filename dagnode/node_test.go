@@ -11,6 +11,9 @@ import (
 
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
+	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/boxo/ipld/unixfs"
+	multicodec "github.com/multiformats/go-multicodec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pb "github.com/ipfs/boxo/ipld/unixfs/pb"
@@ -87,6 +90,43 @@ func loadBlockFromFile(t *testing.T, filename string) blocks.Block {
 	if err != nil {
 		t.Fatalf("failed to create block: %v", err)
 	}
+	return block
+}
+
+// createUnixFSFileBlock creates a properly encoded block from UnixFS file data
+// with CID v1 encoding and DagProtobuf codec.
+func createUnixFSFileBlock(t *testing.T, data []byte) blocks.Block {
+	t.Helper()
+
+	pbNode := merkledag.NodeWithData(data)
+	err := pbNode.SetCidBuilder(cid.V1Builder{Codec: cid.DagProtobuf, MhType: uint64(multicodec.Sha2_256)})
+	require.NoError(t, err)
+
+	encoded, err := pbNode.Marshal()
+	require.NoError(t, err, "Failed to marshal ProtoNode")
+
+	cidBuilder := cid.V1Builder{Codec: cid.DagProtobuf, MhType: uint64(multicodec.Sha2_256)}
+	c, err := cidBuilder.Sum(encoded)
+	require.NoError(t, err)
+
+	block, err := blocks.NewBlockWithCid(encoded, c)
+	require.NoError(t, err)
+
+	return block
+}
+
+// createRawBlock creates a properly encoded block from raw data
+// with CID v1 encoding and Raw codec.
+func createRawBlock(t *testing.T, data []byte) blocks.Block {
+	t.Helper()
+
+	cidBuilder := cid.V1Builder{Codec: cid.Raw, MhType: uint64(multicodec.Sha2_256)}
+	c, err := cidBuilder.Sum(data)
+	require.NoError(t, err)
+
+	block, err := blocks.NewBlockWithCid(data, c)
+	require.NoError(t, err)
+
 	return block
 }
 
@@ -279,4 +319,67 @@ func TestDetectPartialFile_UnixFSData(t *testing.T) {
 			assert.Equal(t, infoFile.IsPartial, isPartial)
 		})
 	}
+}
+
+func TestFileSize_UnixFSFile(t *testing.T) {
+	// Test that FileSize is correctly extracted from UnixFS file nodes
+	fileSize := uint64(500000)
+
+	// Create UnixFS file data and block
+	data := unixfs.FilePBData(nil, fileSize)
+	block := createUnixFSFileBlock(t, data)
+
+	// Analyze the node
+	info, err := dagnode.AnalyzeNode(context.Background(), block)
+	require.NoError(t, err, "Failed to analyze node")
+
+	// Verify UnixFS properties
+	assert.True(t, info.IsUnixFS, "Node should be UnixFS")
+	assert.Equal(t, pb.Data_File, info.UnixFSType, "UnixFS type should be File")
+
+	// Verify FileSize is set correctly
+	assert.Equal(t, fileSize, info.FileSize, "FileSize should match the original file size")
+}
+
+func TestFileSize_NonUnixFS(t *testing.T) {
+	// Test that FileSize is 0 for non-UnixFS nodes
+	testData := []byte("test data")
+	block := createRawBlock(t, testData)
+
+	info, err := dagnode.AnalyzeNode(context.Background(), block)
+	require.NoError(t, err, "Failed to analyze node")
+
+	// Verify FileSize is 0 for raw data
+	assert.False(t, info.IsUnixFS, "Raw data node should not be UnixFS")
+	assert.Equal(t, uint64(0), info.FileSize, "FileSize should be 0 for non-UnixFS nodes")
+}
+
+func TestFileSize_MultiChunkFile(t *testing.T) {
+	// Test FileSize for a file that would be split into multiple chunks
+	fileSize := uint64(1048576) // 1MB
+
+	// Create file with chunk sizes (256KB each)
+	chunkSize := uint64(262144)
+	numChunks := fileSize / chunkSize
+
+	// Create UnixFS file data with block sizes using FSNode
+	fsNode := unixfs.NewFSNode(pb.Data_File)
+	for i := uint64(0); i < numChunks; i++ {
+		fsNode.AddBlockSize(chunkSize)
+	}
+
+	// Serialize to bytes
+	data, err := fsNode.GetBytes()
+	require.NoError(t, err, "Failed to serialize FSNode")
+
+	// Create block
+	block := createUnixFSFileBlock(t, data)
+
+	// Analyze the node
+	info, err := dagnode.AnalyzeNode(context.Background(), block)
+	require.NoError(t, err, "Failed to analyze node")
+
+	// Verify FileSize is set correctly
+	assert.Equal(t, fileSize, info.FileSize, "FileSize should match the original file size")
+	assert.Equal(t, numChunks, uint64(len(info.ChunkSizes)), "Should have correct number of chunk sizes")
 }
