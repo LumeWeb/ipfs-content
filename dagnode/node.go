@@ -44,6 +44,7 @@ type NodeInfo struct {
 	BlockSize  uint64           // Raw, encoded size of block (disk usage)
 	DataSize   uint64           // Size of the data within the node (e.g., file size, metadata size)
 	ChunkSizes []uint64         // Block sizes for UnixFS files (chunk sizes) - renamed for clarity
+	FileSize   uint64           // UnixFS file size (actual logical size)
 }
 
 func AnalyzeNode(ctx context.Context, block blocks.Block) (*NodeInfo, error) {
@@ -87,6 +88,7 @@ func AnalyzeNode(ctx context.Context, block blocks.Block) (*NodeInfo, error) {
 			info.UnixFSType = fsNode.Type()
 
 			if fsNode.Type() == pb.Data_File {
+				info.FileSize = fsNode.FileSize()
 				info.IsFileRoot = len(info.LinkCIDs) > 0
 				blockSizes := fsNode.BlockSizes()
 				if len(blockSizes) > 0 {
