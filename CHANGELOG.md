@@ -1,3 +1,13 @@
+## 0.1.4 (2026-03-20)
+
+### Features
+
+- add dagnode and paths packages for IPFS DAG node analysis
+
+### Fixes
+
+- align chunk detection bounds with test fixtures
+
 ## 0.1.3 (2026-03-17)
 
 ### Fixes
