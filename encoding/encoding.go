@@ -8,9 +8,13 @@ import (
 	"github.com/ipfs/go-cid"
 	legacy "github.com/ipfs/go-ipld-legacy"
 	dagpb "github.com/ipld/go-codec-dagpb"
-	format "github.com/ipfs/go-ipld-format"
+	_ "github.com/ipld/go-ipld-prime/codec/cbor"
+	_ "github.com/ipld/go-ipld-prime/codec/dagcbor"
 	_ "github.com/ipld/go-ipld-prime/codec/dagjson"
+	_ "github.com/ipld/go-ipld-prime/codec/json"
 	_ "github.com/ipld/go-ipld-prime/codec/raw"
+	format "github.com/ipfs/go-ipld-format"
+	"github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 )
 
@@ -26,11 +30,29 @@ func init() {
 
 	// Register raw codec for raw data blocks
 	d.RegisterCodec(cid.Raw, basicnode.Prototype.Bytes, merkledag.RawNodeConverter)
+	d.RegisterCodec(cid.DagCBOR, basicnode.Prototype.Any, DagCborNodeConverter)
 	decoderRegistry = d
 }
 
+// CBORNode is a wrapper around LegacyNode that uniquely identifies CBOR-encoded nodes
+type CBORNode struct {
+	legacy.LegacyNode
+}
+
+// IsCBORNode returns true if the node is a CBORNode wrapper
+func IsCBORNode(node legacy.UniversalNode) bool {
+	_, ok := node.(*CBORNode)
+	return ok
+}
+
+// DagCborNodeConverter converts a go-ipld-prime node + block combination to a CBORNode
+// that satisfies both current and legacy ipld formats for DAG-CBOR.
+func DagCborNodeConverter(b blocks.Block, node ipld.Node) (legacy.UniversalNode, error) {
+	return &CBORNode{legacy.LegacyNode{b, node}}, nil
+}
+
 // DecodeBlock decodes an IPFS block into an IPLD node using the registered codecs.
-// This handles both dag-pb (for ProtoNodes) and raw blocks.
+// This handles dag-pb (for ProtoNodes), raw blocks, and dag-cbor (for CBORNode).
 func DecodeBlock(ctx context.Context, block blocks.Block) (format.Node, error) {
 	return decoderRegistry.DecodeNode(ctx, block)
 }
