@@ -1332,11 +1332,11 @@ func TestBuildSummary_ExcludesDotPaths(t *testing.T) {
 	require.NotNil(t, summary)
 
 	// Verify that "." is not in TreeEntries
-	_, exists := summary.TreeEntries["."]
+	_, exists := summary.TreeEntries[CurrentDir]
 	require.False(t, exists, "Current directory '.' should not be in TreeEntries")
 
 	// Verify that ".." is not in TreeEntries
-	_, exists = summary.TreeEntries[".."]
+	_, exists = summary.TreeEntries[ParentDir]
 	require.False(t, exists, "Parent directory '..' should not be in TreeEntries")
 
 	// Verify that only our 5 files are in the tree entries (plus ROOT)
@@ -1352,10 +1352,10 @@ func TestBuildSummary_ExcludesDotPaths(t *testing.T) {
 
 	// Verify no entry has "." or ".." as its name or path
 	for path, entry := range summary.TreeEntries {
-		if entry.Name == "." {
+		if entry.Name == CurrentDir {
 			t.Errorf("Found entry with name '.': path=%s", path)
 		}
-		if entry.Name == ".." {
+		if entry.Name == ParentDir {
 			t.Errorf("Found entry with name '..': path=%s", path)
 		}
 		if entry.Path == "." {
@@ -1421,10 +1421,10 @@ func TestBuildSummary_ExcludesDotPaths_NestedDirectories(t *testing.T) {
 	require.NotNil(t, summary)
 
 	// Verify that "." and ".." are not in TreeEntries
-	_, exists := summary.TreeEntries["."]
+	_, exists := summary.TreeEntries[CurrentDir]
 	require.False(t, exists, "Current directory '.' should not be in TreeEntries")
 
-	_, exists = summary.TreeEntries[".."]
+	_, exists = summary.TreeEntries[ParentDir]
 	require.False(t, exists, "Parent directory '..' should not be in TreeEntries")
 
 	// Verify all dot paths are excluded regardless of depth
