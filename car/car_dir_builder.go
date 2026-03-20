@@ -149,15 +149,30 @@ func (b *CARBuilder) BuildSummary(ctx context.Context, filesystem fs.FS, wrapInD
 		}
 
 		// Build parent-child relationship during walk
+		//
+		// Rules:
+		// 1. ROOT only contains FILES, not directories at the top level
+		// 2. Non-ROOT directories contain BOTH files AND subdirectories
+		// 3. Files are added to their parent directory's Children
+		// 4. Subdirectories are added to their parent directory's Children
+
 		if entry.Path != "" {
+			// Inside a directory - add to that directory's children
+			// (both files and subdirectories)
 			parent := summary.TreeEntries[entry.Path]
 			if parent != nil {
 				parent.Children = append(parent.Children, path)
 			}
 		} else {
-			// Root-level file or directory, add to ROOT
-			rootChildren := summary.TreeEntries[ROOT].Children
-			summary.TreeEntries[ROOT].Children = append(rootChildren, path)
+			// At root level
+			if d.IsDir() {
+				// Directory at root level - do NOT add to ROOT.Children
+				// ROOT represents the virtual root, not the real filesystem root
+			} else {
+				// File at root level - add to ROOT.Children
+				rootChildren := summary.TreeEntries[ROOT].Children
+				summary.TreeEntries[ROOT].Children = append(rootChildren, path)
+			}
 		}
 
 		return nil

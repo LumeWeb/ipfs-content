@@ -1435,3 +1435,348 @@ func TestBuildSummary_ExcludesDotPaths_NestedDirectories(t *testing.T) {
 		require.NotContains(t, path, "../", "Path should not contain '../'")
 	}
 }
+
+// TestBuildSummary_ExcludesDirectoryEntries test that directory entries are not
+// included as separate entries in the tree. This is the bug we're seeing where
+// directories get added as entries alongside their children.
+//
+// When using files.Walk or boxo's file abstraction, the walk visits both files
+// and directories. We should only include files in TreeEntries, not directories,
+// because directory blocks are created separately in the second pass.
+func TestBuildSummary_ExcludesDirectoryEntries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a test filesystem with nested structure
+	filesystem := fstest.MapFS{
+		"file1.txt": &fstest.MapFile{Data: []byte("content 1")},
+		"file2.txt": &fstest.MapFile{Data: []byte("content 2")},
+		"file3.txt": &fstest.MapFile{Data: []byte("content 3")},
+		"dir1/file4.txt": &fstest.MapFile{Data: []byte("content 4")},
+		"dir2/file5.txt": &fstest.MapFile{Data: []byte("content 5")},
+	}
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Count entries by type
+	var fileCount, dirCount int
+	for path, entry := range summary.TreeEntries {
+		if path == ROOT {
+			continue // ROOT is a synthetic entry
+		}
+		if entry.IsDir {
+			dirCount++
+		} else {
+			fileCount++
+		}
+	}
+
+	// We have 5 files, should have exactly 5 file entries
+	require.Equal(t, 5, fileCount, "Should have exactly 5 file entries")
+
+	// Directories ARE tracked in TreeEntries for bookkeeping
+	// but they should not appear as Children entries in the wrong places
+	// The fix ensures directories are only used for internal tracking,
+	// not as top-level entries
+	require.Greater(t, dirCount, 0, "Should have directory entries for bookkeeping")
+}
+
+// TestBuildSummary_NoRootDirectoryEntry specifically tests that "." (the root directory)
+// is not added as a separate entry. This is the core of the issue.
+func TestBuildSummary_NoRootDirectoryEntry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a simple filesystem with files at root level
+	filesystem := fstest.MapFS{
+		"file1.txt": &fstest.MapFile{Data: []byte("content 1")},
+		"file2.txt": &fstest.MapFile{Data: []byte("content 2")},
+		"file3.txt": &fstest.MapFile{Data: []byte("content 3")},
+	}
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Verify "." is not in TreeEntries
+	_, exists := summary.TreeEntries["."]
+	require.False(t, exists, "Root directory '.' should not be in TreeEntries")
+
+	// Verify files are in ROOT's children
+	rootEntry := summary.TreeEntries[ROOT]
+	require.NotNil(t, rootEntry)
+	require.Len(t, rootEntry.Children, 3, "ROOT should have exactly 3 children")
+
+	// Verify ROOT children are the files, not the directory itself
+	expectedFiles := []string{"file1.txt", "file2.txt", "file3.txt"}
+	for _, expectedFile := range expectedFiles {
+		found := false
+		for _, child := range rootEntry.Children {
+			if child == expectedFile {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "ROOT should contain %s as a child", expectedFile)
+	}
+
+	// Verify no extra entries exist
+	// We should have exactly: ROOT + 3 files = 4 entries total
+	expectedTotalEntries := 1 + 3 // ROOT + files
+	actualTotalEntries := len(summary.TreeEntries)
+
+	// This will likely fail if the bug exists (extra directory entries)
+	require.Equal(t, expectedTotalEntries, actualTotalEntries,
+		"Expected %d total entries (ROOT + files), got %d",
+		expectedTotalEntries, actualTotalEntries)
+
+}
+
+// TestBuildSummary_RootChildrenStructure tests the specific bug where
+// directories are appearing alongside their children in ROOT's Children list.
+// This is what the user is seeing: "a dir with all the children as well all he children as sublings"
+func TestBuildSummary_RootChildrenStructure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a filesystem with directories at root level
+	filesystem := fstest.MapFS{
+		"file1.txt":      &fstest.MapFile{Data: []byte("content 1")},
+		"dir1/file2.txt": &fstest.MapFile{Data: []byte("content 2")},
+		"dir1/file3.txt": &fstest.MapFile{Data: []byte("content 3")},
+	}
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	rootEntry := summary.TreeEntries[ROOT]
+	require.NotNil(t, rootEntry)
+
+
+	// ROOT's children should only contain file paths, not directory paths
+	for _, child := range rootEntry.Children {
+		childEntry := summary.TreeEntries[child]
+		require.NotNil(t, childEntry, "Child entry should exist: %s", child)
+		require.False(t, childEntry.IsDir,
+			"ROOT child should not be a directory: %s is a dir, expected only files", child)
+	}
+
+	// Expected: ROOT has file1.txt as a child
+	require.Contains(t, rootEntry.Children, "file1.txt", "ROOT should contain file1.txt")
+
+	// BUG: dir1 should NOT be in ROOT's children!
+	// dir1 is a directory, not a file. Its children (file2.txt, file3.txt) should be
+	// added to ROOT, not dir1 itself.
+	require.NotContains(t, rootEntry.Children, "dir1", "ROOT should not contain directory dir1 as a child")
+
+	// ROOT should have exactly 1 child (file1.txt), not 2 (file1.txt + dir1)
+	require.Len(t, rootEntry.Children, 1, "ROOT should have exactly 1 child (the file), not the directory")
+
+}
+
+// TestBuildSummary_WalkBehavior demonstrates the actual behavior of fs.WalkDir
+// to understand what entries it generates.
+func TestBuildSummary_WalkBehavior(t *testing.T) {
+	t.Parallel()
+
+	// Create a simple filesystem
+	filesystem := fstest.MapFS{
+		"file1.txt": &fstest.MapFile{Data: []byte("content 1")},
+		"dir1/file2.txt": &fstest.MapFile{Data: []byte("content 2")},
+	}
+
+	// Walk the filesystem and log what we see
+	pathsVisited := []string{}
+	dirsVisited := []string{}
+	filesVisited := []string{}
+
+	err := fs.WalkDir(filesystem, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		pathsVisited = append(pathsVisited, path)
+		if d.IsDir() {
+			dirsVisited = append(dirsVisited, path)
+		} else {
+			filesVisited = append(filesVisited, path)
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+
+	// Log what fs.WalkDir actually visits
+
+	// Expected: "." (root dir), "dir1", "file1.txt", "dir1/file2.txt"
+	require.Contains(t, pathsVisited, ".", "Should visit root directory '.'")
+	require.Contains(t, pathsVisited, "file1.txt", "Should visit file1.txt")
+	require.Contains(t, pathsVisited, "dir1", "Should visit dir1 directory")
+	require.Contains(t, pathsVisited, "dir1/file2.txt", "Should visit dir1/file2.txt")
+
+	// This shows that fs.WalkDir visits directories as well as files!
+	// This is the root cause of the bug.
+}
+
+// TestBuildSummary_RealFilesystem demonstrates the issue with a real filesystem
+// which is closer to the boxo/files behavior.
+func TestBuildSummary_RealFilesystem(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a temporary directory with real files
+	tmpDir, err := os.MkdirTemp("", "car-dir-entry-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create test files
+	files := map[string]string{
+		"file1.txt": "content 1",
+		"file2.txt": "content 2",
+		"file3.txt": "content 3",
+		"dir1/file4.txt": "content 4",
+		"dir2/file5.txt": "content 5",
+	}
+
+	for path, content := range files {
+		fullPath := filepath.Join(tmpDir, path)
+		dir := filepath.Dir(fullPath)
+		if dir != fullPath {
+			err := os.MkdirAll(dir, 0755)
+			require.NoError(t, err)
+		}
+		err := os.WriteFile(fullPath, []byte(content), 0644)
+		require.NoError(t, err)
+	}
+
+	// Build summary using os.DirFS (replicates boxo/files behavior)
+	filesystem := os.DirFS(tmpDir)
+	builder := newTestCARBuilder(t)
+
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Count directory entries (excluding ROOT)
+	var dirCount int
+	for path, entry := range summary.TreeEntries {
+		if path == ROOT {
+			continue
+		}
+		if entry.IsDir {
+			dirCount++
+		}
+	}
+
+	// Directories are tracked in TreeEntries for bookkeeping
+	// This is necessary for creating directory blocks in phase 2
+	require.Greater(t, dirCount, 0, "Should have directory entries for bookkeeping")
+
+	// The directory blocks are created separately
+	// They appear in BlockOrder and have CIDs
+	dirBlockCount := 0
+	for _, blockCID := range summary.BlockOrder {
+		entry := summary.CIDToEntry[blockCID]
+		if entry != nil && entry.IsDir && entry.Path != ROOT {
+			dirBlockCount++
+		}
+	}
+
+	// We should have 2 directory blocks (dir1 and dir2)
+	require.Equal(t, 2, dirBlockCount, "Should have exactly 2 directory blocks created")
+}
+
+// TestHierarchy_NestedDirectories tests that nested directory structures
+// are preserved correctly, with directories added as children of parent directories.
+func TestHierarchy_NestedDirectories(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a nested filesystem
+	filesystem := fstest.MapFS{
+		"file1.txt":          &fstest.MapFile{Data: []byte("content 1")},
+		"dir1/file2.txt":     &fstest.MapFile{Data: []byte("content 2")},
+		"dir1/dir2/file3.txt": &fstest.MapFile{Data: []byte("content 3")},
+		"dir1/dir2/file4.txt": &fstest.MapFile{Data: []byte("content 4")},
+		"dir1/file5.txt":     &fstest.MapFile{Data: []byte("content 5")},
+	}
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+
+	_ = summary.TreeEntries["dir1/dir2"] // Will exist after BuildSummary
+
+
+	// dir1 should NOT be in ROOT.Children (it's a directory, not a file)
+	require.NotContains(t, summary.TreeEntries[ROOT].Children, "dir1",
+		"BUG: Directory should not be in ROOT.Children")
+
+	// file1.txt should be in ROOT.Children
+	require.Contains(t, summary.TreeEntries[ROOT].Children, "file1.txt",
+		"Root-level file should be in ROOT.Children")
+
+	// dir1 should have the files inside it, plus subdir2 as a child
+	dir1Children := summary.TreeEntries["dir1"].Children
+	require.Contains(t, dir1Children, "dir1/file2.txt",
+		"dir1/file2.txt should be in dir1's children")
+	require.Contains(t, dir1Children, "dir1/file5.txt",
+		"dir1/file5.txt should be in dir1's children")
+	require.Contains(t, dir1Children, "dir1/dir2",
+		"dir1/dir2 (subdirectory) should be in dir1's children")
+
+	// dir1/dir2 should have the files inside it
+	dir2Children := summary.TreeEntries["dir1/dir2"].Children
+	require.Contains(t, dir2Children, "dir1/dir2/file3.txt",
+		"dir1/dir2/file3.txt should be in dir1/dir2's children")
+	require.Contains(t, dir2Children, "dir1/dir2/file4.txt",
+		"dir1/dir2/file4.txt should be in dir1/dir2's children")
+
+}
+
+// TestHierarchy_DirectoryVsFile clarifies the difference between files and directories
+// and validates that both are handled correctly.
+func TestHierarchy_DirectoryVsFile(t *testing.T) {
+	ctx := context.Background()
+
+	filesystem := fstest.MapFS{
+		"file.txt":       &fstest.MapFile{Data: []byte("content")},
+		"dir/file.txt":   &fstest.MapFile{Data: []byte("content")},
+		"dir/subdir.txt": &fstest.MapFile{Data: []byte("content")},
+	}
+
+	builder := newTestCARBuilder(t)
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+
+
+	// "dir" is a directory (fs.WalkDir visits it with IsDir=true)
+	dirEntry, exists := summary.TreeEntries["dir"]
+	require.True(t, exists, "dir should exist in TreeEntries")
+	require.True(t, dirEntry.IsDir, "dir should be marked as a directory")
+
+	// Directories are in TreeEntries for bookkeeping but not as Children
+	// of their parents
+
+	// Only files should be in ROOT.Children
+	for _, childPath := range summary.TreeEntries[ROOT].Children {
+		childEntry := summary.TreeEntries[childPath]
+		require.False(t, childEntry.IsDir,
+			"ROOT child %s should be a file, not a directory", childPath)
+	}
+	require.Contains(t, summary.TreeEntries[ROOT].Children, "file.txt")
+
+	// dir should have its children
+	require.Len(t, summary.TreeEntries["dir"].Children, 2)
+	require.Contains(t, summary.TreeEntries["dir"].Children, "dir/file.txt")
+	require.Contains(t, summary.TreeEntries["dir"].Children, "dir/subdir.txt")
+
+}
