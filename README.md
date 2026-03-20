@@ -95,6 +95,20 @@ entries, err := fs.ReadDir(fsys, ".")
 
 All paths are validated to prevent zip-slip attacks.
 
+### IPLD Decoding
+
+Handle IPLD blocks and normalize CIDs across the system:
+
+```go
+// Decode blocks with codec registry support
+node, err := encoding.DecodeBlock(ctx, block)
+
+// Normalize CID to v1 format
+v1Cid := encoding.NormalizeCid(block.Cid())
+```
+
+Supports dag-pb (protobuf), raw, and dag-cbor blocks.
+
 ### DAG Analysis
 
 Inspect IPFS blocks and chunk boundaries:
@@ -145,6 +159,11 @@ func main() {
     format, err := archive.DetectFormat(file)
     _ = format // ZIP, TAR, etc.
 
+    // Reset file position after detection
+    if _, err := file.Seek(0, io.SeekStart); err != nil {
+        log.Fatal(err)
+    }
+
     // Extract as filesystem
     extractor, err := archive.CreateExtractor(file)
     if err != nil {
@@ -171,7 +190,7 @@ func main() {
 - `archive` — Multi-format archive extraction
 - `format` — Unified type system
 - `dagnode` — DAG analytics and metadata
-- `encoding` — IPLD decoding and CID normalization
+- `encoding` — IPLD decoding and CID normalization (replaces `internal/encoding`)
 - `paths` — IPFS/IPNS path constants
 - `validation` — Security and component validation
 - `retry` — Retry utilities
