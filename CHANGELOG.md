@@ -1,3 +1,9 @@
+## 0.1.5 (2026-03-20)
+
+### Features
+
+- add FileSize to NodeInfo for UnixFS file size tracking
+
 ## 0.1.4 (2026-03-20)
 
 ### Features
