@@ -1,436 +1,206 @@
 # ipfs-content
 
-A Go library for IPFS content processing, providing utilities for CAR file streaming, archive detection and extraction, block storage management, and UnixFS node generation.
+A Go library for IPFS content processing. Streamlined CAR generation, archive extraction, and DAG utilities for building IPFS-powered applications.
 
 ## Overview
 
-This library provides a comprehensive set of tools for working with IPFS content in Go applications. It handles the complexities of:
+**ipfs-content** handles the heavy lifting of working with IPFS blocks and archives:
 
-- **CAR (Content Addressable Archive) file generation** with two-pass streaming for memory efficiency
-- **Archive format detection and extraction** supporting ZIP, TAR, TAR.GZ, TAR.BZ2, RAR, and 7Z formats
-- **Memory-bounded block storage** with LRU eviction
-- **UnixFS node generation** for creating IPFS-compatible directory structures
+- **CAR files** — Efficient two-pass streaming with size pre-calculation for uploads
+- **Archives** — Extract ZIP, TAR, RAR, 7Z formats with security validation
+- **Block storage** — Memory-bounded LRU cache or DAG-aware tracking
+- **UnixFS** — Build IPFS-compatible directory structures
+- **DAG analysis** — Inspect blocks and detect chunk boundaries
 
-## Installation
+Perfect for upload services, content gateways, and IPFS integrations.
+
+## Quick Start
 
 ```bash
 go get go.lumeweb.com/ipfs-content
 ```
 
-## Packages
-
-### car
-
-CAR (Content Addressable aRchive) file streaming with two-pass generation for memory efficiency.
-
-**Key Functions:**
-
-- `StreamCAR(ctx, filesystem, writer, maxMemory, wrapInDir)` — Stream CAR data to an io.Writer from directory structures
-- `StreamCARWithSize(ctx, filesystem, writer, maxMemory, wrapInDir)` — Stream CAR with pre-calculated size (useful for TUS uploads)
-- `CalculateCARSize(summary)` — Calculate total CAR file size before writing
-- `NewDAGServiceWithMemoryLimit(memoryLimit)` — Creates LRU blockstore with DAG service for memory-constrained operations
-- `NewCARBuilder(bs, dagService, generator)` — Create a CAR builder for fine-grained control
-
-**Two-Pass Architecture:**
-
-The CAR package uses a two-pass generation strategy:
-1. **Pass 1:** Walk filesystem and build TreeSummary with metadata (block CIDs, sizes, tree structure)
-2. **Pass 2:** Write CARv1 using the summary, regenerating blocks on demand
-
-This approach allows pre-calculating the CAR size without storing all blocks in memory.
+Generate a CAR file from a directory:
 
 ```go
 import "go.lumeweb.com/ipfs-content/car"
 
-// Simple CAR streaming
-rootCID, err := car.StreamCAR(ctx, os.DirFS("./content"), writer, 100*1024*1024, true)
-
-// With size calculation for TUS uploads
-rootCID, carSize, err := car.StreamCARWithSize(ctx, os.DirFS("./content"), writer, 100*1024*1024, true)
-fmt.Printf("Root CID: %s, CAR Size: %d\n", rootCID, carSize)
-```
-
----
-
-### blockstore
-
-Memory-based IPFS block storage with configurable memory limits.
-
-**Types:**
-
-- `LRUBlockstore` — Thread-safe LRU cache with size-based eviction (uses doubly-linked list)
-- `InMemoryBlockstore` — Unbounded in-memory blockstore using boxo's map datastore
-
-**Key Functions:**
-
-- `NewLRUBlockstore(sizeLimit uint64)` — Create a size-bounded LRU cache
-- `NewInMemoryBlockstore()` — Create an unbounded in-memory blockstore
-
-```go
-import "go.lumeweb.com/ipfs-content/blockstore"
-
-// LRU blockstore with 100MB limit
-store := blockstore.NewLRUBlockstore(100 * 1024 * 1024)
-
-// In-memory blockstore (no size limit)
-memStore := blockstore.NewInMemoryBlockstore()
-```
-
-**Thread Safety:** All operations use proper locking (RWMutex) for concurrent access.
-
----
-
-### unixfs
-
-UnixFS node generation for IPFS, creating DAG structures from readers and directories.
-
-**Interface: `UnixFSNodeGenerator`**
-
-```go
-type UnixFSNodeGenerator interface {
-    CreateNode(ctx context.Context, reader io.ReadSeekCloser) (format.Node, error)
-    CreateUnixFSNode(ctx context.Context, r io.ReadSeekCloser, maxlinks int, chunkSize int64) (format.Node, error)
-    CreateDAGFromReader(ctx context.Context, reader io.Reader, maxlinks int, chunkSize int64, rawLeaves bool) (format.Node, error)
-    CreateDirectory() (unixfsio.Directory, error)
-    CreateDirectoryWithLinks(ctx context.Context, children []DirectoryChild) (format.Node, error)
-    GetDAGService() format.DAGService
-    GetBlockstore() blockstore.Blockstore
-}
-```
-
-**Key Functions:**
-
-- `NewUnixFSNodeGenerator(options ...UnixFSNodeGeneratorOption)` — Create generator with options
-- `WithUnixFSNodeDAGService(dagService)` — Configure custom DAG service
-- `WithUnixFSNodeBlockstore(blockstore)` — Configure custom blockstore
-
-**Options Pattern:**
-
-```go
-import "go.lumeweb.com/ipfs-content/unixfs"
-import "go.lumeweb.com/ipfs-content/car"
-
-// Create with custom components
-generator := unixfs.NewUnixFSNodeGenerator(
-    unixfs.WithUnixFSNodeDAGService(dagService),
-    unixfs.WithUnixFSNodeBlockstore(blockstore),
+// Stream CAR to writer with 100MB memory limit
+rootCID, carSize, err := car.StreamCARWithSize(
+    ctx,
+    os.DirFS("./content"),
+    writer,
+    100*1024*1024,
+    true, // wrap in directory
 )
-
-// Create node from file
-node, err := generator.CreateNode(ctx, file)
 ```
 
----
-
-### archive
-
-Archive detection and extraction supporting multiple formats.
-
-**Supported Formats:** ZIP, TAR, TAR.GZ, TAR.BZ2, RAR, 7Z
-
-**Key Functions:**
-
-- `DetectFormat(reader io.Reader)` — Detect archive format by extension and magic bytes
-- `CreateExtractor(reader archives.ReaderAtSeeker)` — Create appropriate extractor for the format
-- `DefaultRegistry()` — Access the global archive registry
-
-**Type: `ArchiveFileEntry`**
-
-```go
-type ArchiveFileEntry struct {
-    Name() string           // Base name of file
-    Size() int64            // File size in bytes
-    Mode() os.FileMode      // File permissions
-    ModTime() time.Time     // Modification time
-    IsDir() bool            // Whether entry is a directory
-    ContentReader() io.ReadCloser  // Direct access to file content
-    Attributes() map[string]string // Format-specific attributes
-}
-```
-
-**Type: `ArchiveExtractor`**
-
-```go
-type ArchiveExtractor interface {
-    Format() Format
-    Filesystem(ctx context.Context) (fs.FS, error)
-    Close() error
-}
-```
+Detect and extract archives:
 
 ```go
 import "go.lumeweb.com/ipfs-content/archive"
 
-// Detect and extract archive
-format, err := archive.DetectFormat(reader)
-if err != nil {
-    log.Fatal(err)
-}
-
-extractor, err := archive.CreateExtractor(reader)
-if err != nil {
-    log.Fatal(err)
-}
+// Detect format and extract to filesystem
+extractor, err := archive.CreateExtractor(file)
 defer extractor.Close()
 
-// Browse archive as filesystem
+fsys, err := extractor.Filesystem(ctx) // Browse like an fs.FS
+```
+
+## Key Capabilities
+
+### CAR Generation
+
+Stream CAR files efficiently with built-in memory management:
+
+```go
+// Direct streaming
+rootCID, err := car.StreamCAR(ctx, fsys, writer, maxMemory, wrapInDir)
+
+// Pre-calculate size before writing (useful for upload method selection)
+builder, summary, err := car.PrepareCAR(ctx, fsys, maxMemory, wrapInDir)
+carSize := car.CalculateCARSize(summary)
+rootCID, err := car.WriteCAR(ctx, builder, writer)
+```
+
+**Two-pass approach:** Walk filesystem → Build metadata → Write CAR. Enables size pre-calculation without storing all blocks.
+
+### Block Storage
+
+Choose the right storage strategy for your workload:
+
+```go
+// LRU cache with size limit (memory-constrained)
+store := blockstore.NewLRUBlockstore(100 * 1024 * 1024)
+
+// DAG-aware storage (prevents "block not found" errors during regeneration)
+levelStore := blockstore.NewLevelBlockStore()
+
+// Unbounded (small datasets)
+memStore := blockstore.NewInMemoryBlockstore()
+```
+
+### Archive Extraction
+
+Support for ZIP, TAR, TAR.GZ, TAR.BZ2, RAR, and 7Z:
+
+```go
+// Detect format from file
+format, err := archive.DetectFormat(reader)
+
+// Browse contents as filesystem
 fsys, err := extractor.Filesystem(ctx)
-entries, err := fs.ReadDir(fsys)
+entries, err := fs.ReadDir(fsys, ".")
 ```
 
-**Registry Pattern:** The archive package uses a registry pattern for format detection and extractor creation, allowing registration of custom detectors and extractors.
+All paths are validated to prevent zip-slip attacks.
 
----
+### IPLD Decoding
 
-### format
-
-Unified file format type system used across the library.
-
-**Format Enum:**
+Handle IPLD blocks and normalize CIDs across the system:
 
 ```go
-const (
-    FormatUnknown  // Unknown or unrecognized format
-    FormatCAR       // IPFS Content Addressable Archive
-    FormatFile      // Regular single file
-    FormatZIP       // ZIP archive
-    FormatRAR       // RAR archive
-    FormatTAR       // TAR archive
-    FormatTAR_GZ    // Gzip-compressed TAR
-    FormatTAR_BZ2   // Bzip2-compressed TAR
-    Format7Z        // 7z archive
-)
+// Decode blocks with codec registry support
+node, err := encoding.DecodeBlock(ctx, block)
+
+// Normalize CID to v1 format
+v1Cid := encoding.NormalizeCid(block.Cid())
 ```
 
-**Methods:**
+Supports dag-pb (protobuf), raw, and dag-cbor blocks.
 
-- `IsUploadFormat() bool` — Returns true if format is supported for direct upload (only CAR)
-- `IsArchiveFormat() bool` — Returns true if format is an extractable archive
-- `String() string` — Human-readable format name
-- `ParseFormat(s string) Format` — Parse string to Format
+### DAG Analysis
+
+Inspect IPFS blocks and chunk boundaries:
 
 ```go
-import "go.lumeweb.com/ipfs-content/format"
+// Analyze block metadata
+info, err := dagnode.AnalyzeNode(ctx, block)
+// info.Type, info.LinkCount(), info.ChunkSizes...
 
-if format.IsArchiveFormat() {
-    // Extract archive contents
-}
-
-if format.IsUploadFormat() {
-    // Ready for IPFS upload
-}
+// Detect partial chunks (useful for streaming)
+isPartial := dagnode.IsPartialFile(info) // 240KB-256KB range
 ```
 
----
+## Design Patterns
 
-### validation
-
-Path validation and component validation utilities.
-
-**Path Validation:**
-
-```go
-import "go.lumeweb.com/ipfs-content/validation"
-
-// Validate archive paths to prevent zip-slip attacks
-err := validation.ValidateArchivePath("path/within/archive")
-if err != nil {
-    // Reject malicious path
-}
-```
-
-**Component Validation:**
-
-```go
-validator := validation.NewComponentValidator()
-
-// Check required components
-err := validator.ValidateRequired(
-    validation.Component{Name: "DAGService", Value: dagService},
-    validation.Component{Name: "Blockstore", Value: blockstore},
-)
-
-// Or use helper methods
-err := validator.NotNil("DAGService", dagService)
-err := validator.AllNotNil("DAGService", dagService, "Blockstore", blockstore)
-```
-
----
-
-### retry
-
-Retry logic with configurable backoff strategies.
-
-**Key Functions:**
-
-- `Options(ctx context.Context)` — Default retry configuration (3 attempts, backoff with jitter, max 30s)
-- `OptionsWithConfig(ctx, cfg OptionsConfig)` — Custom retry settings
-
-```go
-import "go.lumeweb.com/ipfs-content/retry"
-import "github.com/avast/retry-go/v4"
-
-// Default retry (3 attempts, exponential backoff with 5s max jitter, 30s max delay)
-err := retry.Do(
-    func() error { return someOperation() },
-    retry.Options(ctx)...,
-)
-
-// Custom retry configuration
-cfg := retry.OptionsConfig{
-    Attempts:  5,
-    MaxDelay: time.Minute,
-    MaxJitter: 10 * time.Second,
-}
-err := retry.Do(
-    func() error { return someOperation() },
-    retry.OptionsWithConfig(ctx, cfg)...,
-)
-```
-
----
-
-### httpclient
-
-HTTP client factory with sensible defaults and options.
-
-**Key Functions:**
-
-- `CreateDefaultClient(opts ...func(*FactoryOptions))` — Create HTTP client with options
-- `WithDefaultClient[T](factory ClientFunc[T])` — Higher-order function for service clients
-- `WithCustomClient[T](factory ClientFunc[T])` — Factory with custom HTTP client
-
-**Options:**
-
-```go
-import "go.lumeweb.com/ipfs-content/httpclient"
-
-// Create client with custom options using functional options pattern
-client := httpclient.CreateDefaultClient(
-    func(opts *httpclient.FactoryOptions) {
-        opts.WithTimeout(60 * time.Second)
-        opts.WithKeepAlives(true)
-        opts.WithMaxRetries(5)
-    },
-)
-
-// Service client factory pattern
-type MyService interface {
-    DoSomething(ctx context.Context) error
-}
-
-createService := httpclient.WithDefaultClient(func(baseURL string, client *http.Client) (MyService, error) {
-    return NewMyServiceClient(baseURL, client), nil
-})
-
-svc, err := createService("https://api.example.com")
-```
-
----
-
-## Key Patterns
-
-### Option Pattern
-
-Configuration uses the functional options pattern for flexibility:
-
-```go
-type Option func(*Options)
-
-func WithTimeout(d time.Duration) Option {
-    return func(o *Options) { o.Timeout = d }
-}
-```
-
-### Two-Pass CAR Generation
-
-Memory-efficient CAR streaming without storing all blocks:
-
-```
-Pass 1: Walk filesystem → Build TreeSummary (metadata only)
-Pass 2: Write CAR → Regenerate blocks from summary
-```
-
-### Registry Pattern
-
-Archive format detection uses a centralized registry:
-
-```go
-registry := archive.NewArchiveRegistry()
-registry.RegisterDetector(myDetector)
-registry.RegisterExtractor(format, myCreator)
-```
-
-### Security-First Validation
-
-All archive paths are validated before extraction to prevent path traversal attacks.
-
----
+- **Option pattern** — Flexible configuration (unixfs, httpclient, retry)
+- **Registry pattern** — Extensible format detection and extraction
+- **Stream-based I/O** — Work with archives and CARs without loading into memory
+- **Security-first** — Path validation for archive extraction
 
 ## Complete Example
+
+Convert an archive to a CAR file:
 
 ```go
 package main
 
 import (
     "context"
-    "io"
     "log"
     "os"
 
     "go.lumeweb.com/ipfs-content/archive"
     "go.lumeweb.com/ipfs-content/car"
-    "go.lumeweb.com/ipfs-content/format"
 )
 
 func main() {
     ctx := context.Background()
 
-    // Open archive file
+    // Open archive
     file, err := os.Open("archive.zip")
     if err != nil {
         log.Fatal(err)
     }
     defer file.Close()
 
-    // Detect archive format
-    archiveFormat, err := archive.DetectFormat(file)
-    if err != nil {
+    // Detect format
+    format, err := archive.DetectFormat(file)
+    _ = format // ZIP, TAR, etc.
+
+    // Reset file position after detection
+    if _, err := file.Seek(0, io.SeekStart); err != nil {
         log.Fatal(err)
     }
-    log.Printf("Detected format: %s", archiveFormat)
 
-    // Create extractor
+    // Extract as filesystem
     extractor, err := archive.CreateExtractor(file)
     if err != nil {
         log.Fatal(err)
     }
     defer extractor.Close()
 
-    // Browse archive contents
     fsys, err := extractor.Filesystem(ctx)
     if err != nil {
         log.Fatal(err)
     }
 
-    // Stream archive contents to CAR
-    writer := os.Stdout
-    rootCID, err := car.StreamCAR(ctx, fsys, ".", writer, 100*1024*1024, true)
-    if err != nil {
-        log.Fatal(err)
-    }
+    // Stream to CAR
+    rootCID, err := car.StreamCAR(ctx, fsys, os.Stdout, 100*1024*1024, true)
     log.Printf("Root CID: %s", rootCID)
 }
 ```
 
+## Packages
+
+- `car` — CAR streaming and size pre-calculation
+- `blockstore` — LRU cache and DAG-aware storage
+- `unixfs` — IPFS directory structures
+- `archive` — Multi-format archive extraction
+- `format` — Unified type system
+- `dagnode` — DAG analytics and metadata
+- `encoding` — IPLD decoding and CID normalization (replaces `internal/encoding`)
+- `paths` — IPFS/IPNS path constants
+- `validation` — Security and component validation
+- `retry` — Retry utilities
+- `httpclient` — HTTP client factory
+
 ## Dependencies
 
-- [boxo](https://github.com/ipfs/boxo) — IPFS implementation libraries
-- [go-cid](https://github.com/ipfs/go-cid) — CID implementation
-- [go-ipld-format](https://github.com/ipfs/go-ipld-format) — IPLD format interface
-- [mholt/archives](https://github.com/mholt/archives) — Archive extraction backend
-- [avast/retry-go](https://github.com/avast/retry-go) — Retry logic
-- [docker/go-units](https://github.com/docker/go-units) — Human-readable size formatting
+- [boxo](https://github.com/ipfs/boxo) — IPFS implementation
+- [go-ipld-prime](https://github.com/ipld/go-ipld-prime) — IPLD codecs
+- [mholt/archives](https://github.com/mholt/archives) — Archive handling
 
 ## License
 
