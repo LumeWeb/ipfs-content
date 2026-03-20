@@ -32,6 +32,12 @@ go.work.sum
 # .vscode/
 
 # Aider Desk
+
+# Testing fixtures
+internal/testing/fixtures/data/
+internal/testing/fixtures/protobuf_generator
+
+
 .aider-desk/
 .aider.input.history
 # .idea/
