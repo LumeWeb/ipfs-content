@@ -110,8 +110,8 @@ func AnalyzeNode(ctx context.Context, block blocks.Block) (*NodeInfo, error) {
 
 // isLikelyChunk determines if a size is characteristic of an IPFS file chunk
 func isLikelyChunk(size uint64) bool {
-	// Check for sizes in chunking range (240KB <= size < 256KB)
-	return size >= sizeThreshold && size < typicalChunkSize
+	// Check for sizes in chunking range (240KB <= size <= 256KB)
+	return size >= sizeThreshold && size <= typicalChunkSize
 }
 
 func IsPartialFile(info *NodeInfo) bool {

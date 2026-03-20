@@ -112,10 +112,12 @@ remove_block() {
 # ============================================
 
 # Determine if a size is likely a chunk
+# Note: Thresholds must match dagnode/node.go constants (sizeThreshold and typicalChunkSize)
 is_likely_chunk() {
   local size=$1
-  local threshold=245760
-  local typical=262144
+  # Chunk detection thresholds (240KB - 256KB, inclusive)
+  local threshold=245760   # 240 * 1024 (sizeThreshold)
+  local typical=262144     # 256 * 1024 (typicalChunkSize)
   if [[ "$size" -ge "$threshold" && "$size" -le "$typical" ]]; then
     echo "true"
   else
