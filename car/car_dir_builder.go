@@ -21,7 +21,11 @@ import (
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
-const ROOT = "ROOT"
+const (
+	ROOT      = "ROOT"
+	CurrentDir = "."
+	ParentDir   = ".."
+)
 
 // CARBuilder performs two-pass CAR generation:
 // Pass 1: Walk filesystem and build summary with metadata
@@ -97,7 +101,7 @@ func (b *CARBuilder) BuildSummary(ctx context.Context, filesystem fs.FS, wrapInD
 			return err
 		}
 
-		if path == "" || path == ROOT {
+		if path == "" || path == ROOT || path == CurrentDir || path == ParentDir {
 			return nil
 		}
 

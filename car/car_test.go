@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -1107,7 +1108,9 @@ func TestCAR_Deduplication(t *testing.T) {
 			data := make([]byte, tt.dataSize)
 			// All zeros → maximum deduplication
 
-			filesystem := newTestBytesFS(data, "zeros.bin")
+			filesystem := fstest.MapFS{
+				"zeros.bin": &fstest.MapFile{Data: data},
+			}
 			builder := newTestCARBuilder(t)
 			summary, err := builder.BuildSummary(ctx, filesystem, true)
 			require.NoError(t, err)
@@ -1158,7 +1161,9 @@ func TestCAR_NoDeduplication(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int(tt.dataSize), n)
 
-			filesystem := newTestBytesFS(data, "random.bin")
+			filesystem := fstest.MapFS{
+				"random.bin": &fstest.MapFile{Data: data},
+			}
 			builder := newTestCARBuilder(t)
 			_, err = builder.BuildSummary(ctx, filesystem, true)
 			require.NoError(t, err)
@@ -1204,7 +1209,9 @@ func TestWriteCAR_BlockRegenerationNoLRUEviction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int(totalDataSize), n)
 
-	filesystem := newTestBytesFS(testData, "largefile.bin")
+	filesystem := fstest.MapFS{
+		"largefile.bin": &fstest.MapFile{Data: testData},
+	}
 
 	// BuildSummary
 	builder := newTestCARBuilder(t)
@@ -1237,7 +1244,9 @@ func TestLevelBlockStore_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create CARBuilder using the public API
-	filesystem := newTestBytesFS([]byte("hello world"), "file.txt")
+	filesystem := fstest.MapFS{
+		"file.txt": &fstest.MapFile{Data: []byte("hello world")},
+	}
 
 	builder, summary, err := PrepareCAR(ctx, filesystem, true)
 	require.NoError(t, err)
@@ -1271,7 +1280,9 @@ func TestWriteCAR_LargeFileNoLRUEviction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int(totalDataSize), n)
 
-	filesystem := newTestBytesFS(testData, "largefile.bin")
+	filesystem := fstest.MapFS{
+		"largefile.bin": &fstest.MapFile{Data: testData},
+	}
 
 	builder := newTestCARBuilder(t)
 	_, err = builder.BuildSummary(ctx, filesystem, false)
@@ -1283,4 +1294,144 @@ func TestWriteCAR_LargeFileNoLRUEviction(t *testing.T) {
 
 	require.NoError(t, err, "Large file CAR generation must not fail")
 	require.Greater(t, carBuf.Len(), 0, "CAR should contain data")
+}
+
+// TestBuildSummary_ExcludesDotPaths tests that BuildSummary correctly excludes "." and ".."
+// directories when walking a real filesystem with os.DirFS. This prevents ghost directory
+// entries from being included in the CAR as files.
+func TestBuildSummary_ExcludesDotPaths(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a temporary directory with real files
+	tmpDir, err := os.MkdirTemp("", "car-dot-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create test files in the directory
+	fileContents := map[string]string{
+		"file1.txt": "content 1",
+		"file2.txt": "content 2",
+		"file3.txt": "content 3",
+		"file4.txt": "content 4",
+		"file5.txt": "content 5",
+	}
+
+	for filename, content := range fileContents {
+		err := os.WriteFile(filepath.Join(tmpDir, filename), []byte(content), 0644)
+		require.NoError(t, err)
+	}
+
+	// Build summary using os.DirFS (replicates real-world usage)
+	filesystem := os.DirFS(tmpDir)
+	builder := newTestCARBuilder(t)
+
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Verify that "." is not in TreeEntries
+	_, exists := summary.TreeEntries[CurrentDir]
+	require.False(t, exists, "Current directory '.' should not be in TreeEntries")
+
+	// Verify that ".." is not in TreeEntries
+	_, exists = summary.TreeEntries[ParentDir]
+	require.False(t, exists, "Parent directory '..' should not be in TreeEntries")
+
+	// Verify that only our 5 files are in the tree entries (plus ROOT)
+	expectedFileCount := len(fileContents)
+	actualFileCount := 0
+	for path, entry := range summary.TreeEntries {
+		if path != ROOT && !entry.IsDir {
+			actualFileCount++
+		}
+	}
+	require.Equal(t, expectedFileCount, actualFileCount,
+		"Should have exactly %d file entries, got %d", expectedFileCount, actualFileCount)
+
+	// Verify no entry has "." or ".." as its name or path
+	for path, entry := range summary.TreeEntries {
+		if entry.Name == CurrentDir {
+			t.Errorf("Found entry with name '.': path=%s", path)
+		}
+		if entry.Name == ParentDir {
+			t.Errorf("Found entry with name '..': path=%s", path)
+		}
+		if entry.Path == "." {
+			t.Errorf("Found entry with path '.': path=%s, name=%s", path, entry.Name)
+		}
+		if entry.Path == ".." {
+			t.Errorf("Found entry with path '..': path=%s, name=%s", path, entry.Name)
+		}
+	}
+
+	// Write CAR and verify it works correctly
+	var buf bytes.Buffer
+	err = builder.WriteCAR(ctx, &buf)
+	require.NoError(t, err)
+	require.Greater(t, buf.Len(), 0)
+
+	// Verify CAR is valid
+	carReader, err := carv1.NewCarReader(bytes.NewReader(buf.Bytes()))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), carReader.Header.Version)
+	assert.Len(t, carReader.Header.Roots, 1)
+}
+
+// TestBuildSummary_ExcludesDotPaths_NestedDirectories tests that "." and ".." are excluded
+// even when there are nested directories in the filesystem.
+func TestBuildSummary_ExcludesDotPaths_NestedDirectories(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a temporary directory with nested structure
+	tmpDir, err := os.MkdirTemp("", "car-dot-nested-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create nested directory structure
+	dirs := []string{"dir1", "dir2", "dir1/subdir1", "dir1/subdir2"}
+	for _, dir := range dirs {
+		err := os.MkdirAll(filepath.Join(tmpDir, dir), 0755)
+		require.NoError(t, err)
+	}
+
+	// Create files in various directories
+	files := map[string]string{
+		"file1.txt":           "content 1",
+		"dir1/file2.txt":      "content 2",
+		"dir2/file3.txt":      "content 3",
+		"dir1/subdir1/file4":  "content 4",
+		"dir1/subdir2/file5":  "content 5",
+	}
+
+	for file, content := range files {
+		err := os.WriteFile(filepath.Join(tmpDir, file), []byte(content), 0644)
+		require.NoError(t, err)
+	}
+
+	// Build summary using os.DirFS
+	filesystem := os.DirFS(tmpDir)
+	builder := newTestCARBuilder(t)
+
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Verify that "." and ".." are not in TreeEntries
+	_, exists := summary.TreeEntries[CurrentDir]
+	require.False(t, exists, "Current directory '.' should not be in TreeEntries")
+
+	_, exists = summary.TreeEntries[ParentDir]
+	require.False(t, exists, "Parent directory '..' should not be in TreeEntries")
+
+	// Verify all dot paths are excluded regardless of depth
+	for path := range summary.TreeEntries {
+		require.NotContains(t, path, "/.", "Path should not contain '/.'")
+		require.NotContains(t, path, "/..", "Path should not contain '/..'")
+		require.NotContains(t, path, "./", "Path should not contain './'")
+		require.NotContains(t, path, "../", "Path should not contain '../'")
+	}
 }
