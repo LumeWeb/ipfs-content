@@ -1,3 +1,9 @@
+## 0.1.6 (2026-03-20)
+
+### Fixes
+
+- exclude dot paths from CAR summary and fix test filesystem
+
 ## 0.1.5 (2026-03-20)
 
 ### Features
