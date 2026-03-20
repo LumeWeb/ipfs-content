@@ -1,3 +1,9 @@
+## 0.1.7 (2026-03-20)
+
+### Fixes
+
+- prevent root directory duplication in tree hierarchy
+
 ## 0.1.6 (2026-03-20)
 
 ### Fixes
