@@ -101,8 +101,18 @@ func (b *CARBuilder) BuildSummary(ctx context.Context, filesystem fs.FS, wrapInD
 			return err
 		}
 
-		if path == "" || path == ROOT || path == CurrentDir || path == ParentDir {
+		if path == "" || path == ROOT || path == ParentDir {
 			return nil
+		}
+
+		// Handle special case: CurrentDir(".") when it's actually a file.
+		// This occurs with single-file filesystem wrappers like testBytesFS.
+		// If "." is a directory, skip it (normal filesystem behavior).
+		if path == CurrentDir {
+			if d.IsDir() {
+				return nil
+			}
+			// If "." is a file, process it as the solitary file at root
 		}
 
 		entry := &TreeEntry{
