@@ -1780,3 +1780,76 @@ func TestHierarchy_DirectoryVsFile(t *testing.T) {
 	require.Contains(t, summary.TreeEntries["dir"].Children, "dir/subdir.txt")
 
 }
+
+// TestBuildSummary_SingleFileAsCurrentDir tests the edge case where the
+// filesystem is a single-file wrapper (like testBytesFS) where "." is a file,
+// not a directory. This happens when wrapping bytes or a single file as an
+// fs.FS implementation. WalkDir will visit "." with isDir=false, and we must
+// process it correctly rather than skipping it.
+func TestBuildSummary_SingleFileAsCurrentDir(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a single-file filesystem where "." opens to a file
+	filesystem := newTestBytesFS([]byte("hello world"), "test.txt")
+	builder := newTestCARBuilder(t)
+
+	// Build summary - this should not error
+	summary, err := builder.BuildSummary(ctx, filesystem, true)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// Verify "." is in TreeEntries as a file (not a directory)
+	entry, exists := summary.TreeEntries["."]
+	require.True(t, exists, `"." should be in TreeEntries for single-file filesystem`)
+	require.False(t, entry.IsDir, `"." should not be a directory`)
+	require.Equal(t, "test.txt", entry.Name, "File name should be 'test.txt' from testBytesFS")
+	require.Equal(t, "", entry.Path) // At root level
+
+	// Verify the CID was created
+	require.NotEqual(t, cid.Undef, entry.CID, "File should have a CID")
+
+	// Verify it was added to ROOT.Children
+	require.Contains(t, summary.TreeEntries[ROOT].Children, ".",
+		"Single file should be added to ROOT.Children")
+
+	// Verify ROOT has exactly one child
+	require.Len(t, summary.TreeEntries[ROOT].Children, 1,
+		"ROOT should have exactly one child (the single file)")
+
+	// Verify blocks were created
+	require.NotEmpty(t, summary.BlockOrder, "Should have blocks")
+	require.NotEmpty(t, summary.BlockSizes, "Should have block sizes")
+	require.LessOrEqual(t, len(summary.BlockOrder), len(summary.BlockSizes),
+		"BlockOrder length should not exceed BlockSizes length")
+
+	// Verify summary has root CID
+	require.NotEqual(t, cid.Undef, summary.RootCID)
+}
+
+// TestBuildSummary_SingleFileAsCurrentDir_NoWrap tests the single-file
+// filesystem with wrapInDir=false to ensure the optimization works.
+func TestBuildSummary_SingleFileAsCurrentDir_NoWrap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Create a single-file filesystem
+	filesystem := newTestBytesFS([]byte("hello world"), "test.txt")
+	builder := newTestCARBuilder(t)
+
+	// Build summary with wrapInDir=false
+	summary, err := builder.BuildSummary(ctx, filesystem, false)
+	require.NoError(t, err)
+	require.NotNil(t, summary)
+
+	// With wrapInDir=false and a single file, RootCID should be the file's CID
+	require.NotEqual(t, cid.Undef, summary.RootCID)
+
+	// The entry's CID should match the RootCID
+	entry := summary.TreeEntries["."]
+	require.NotNil(t, entry)
+	require.Equal(t, entry.CID, summary.RootCID,
+		"With wrapInDir=false, RootCID should be the file's CID")
+}
