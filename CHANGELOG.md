@@ -1,3 +1,9 @@
+## 0.1.8 (2026-03-21)
+
+### Fixes
+
+- handle '.' as file in single-file filesystems
+
 ## 0.1.7 (2026-03-20)
 
 ### Fixes
