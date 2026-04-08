@@ -15,6 +15,7 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/samber/lo"
 
+	"go.lumeweb.com/ipfs-content/dagnode"
 	"go.lumeweb.com/ipfs-content/internal/carv1"
 	"go.lumeweb.com/ipfs-content/encoding"
 	internalio "go.lumeweb.com/ipfs-content/internal/io"
@@ -51,14 +52,27 @@ type TreeSummary struct {
 	CARSize     uint64
 }
 
+// TotalLogicalFileSize returns the sum of all logical file sizes in the summary.
+// This represents the total size of all files in the CAR before chunking.
+func (ts *TreeSummary) TotalLogicalFileSize() uint64 {
+	var total uint64
+	for _, entry := range ts.TreeEntries {
+		if !entry.IsDir && entry.LogicalFileSize > 0 {
+			total += entry.LogicalFileSize
+		}
+	}
+	return total
+}
+
 // TreeEntry represents an entry in the filesystem tree.
 type TreeEntry struct {
-	Path      string
-	Name      string
-	IsDir     bool
-	CID       cid.Cid
-	Children  []string
-	ChunkSize int64
+	Path            string
+	Name            string
+	IsDir           bool
+	CID             cid.Cid
+	Children        []string
+	ChunkSize       int64
+	LogicalFileSize uint64 // UnixFS logical file size (actual file size before chunking)
 }
 
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
@@ -132,7 +146,7 @@ func (b *CARBuilder) BuildSummary(ctx context.Context, filesystem fs.FS, wrapInD
 				return err
 			}
 
-			rootCID, blocks, blockSizes, err := b.createUnixFSBlocks(ctx, file)
+			rootCID, blocks, blockSizes, logicalFileSize, err := b.createUnixFSBlocks(ctx, file)
 			closeErr := file.Close()
 			if err != nil {
 				return err
@@ -143,6 +157,7 @@ func (b *CARBuilder) BuildSummary(ctx context.Context, filesystem fs.FS, wrapInD
 
 			entry.CID = rootCID
 			entry.ChunkSize = b.chunkSize
+			entry.LogicalFileSize = logicalFileSize
 
 			for i, blockCID := range blocks {
 				summary.BlockOrder = append(summary.BlockOrder, blockCID)
@@ -426,24 +441,33 @@ func (b *CARBuilder) collectAllBlocks(ctx context.Context, rootCID cid.Cid) ([]c
 	return allCIDs, allSizes, nil
 }
 
-func (b *CARBuilder) createUnixFSBlocks(ctx context.Context, r io.Reader) (cid.Cid, []cid.Cid, []uint64, error) {
+func (b *CARBuilder) createUnixFSBlocks(ctx context.Context, r io.Reader) (cid.Cid, []cid.Cid, []uint64, uint64, error) {
 	if err := ctx.Err(); err != nil {
-		return cid.Cid{}, nil, nil, err
+		return cid.Cid{}, nil, nil, 0, err
 	}
 
 	nd, err := b.generator.CreateUnixFSNode(ctx, internalio.NewReadSeekCloser(r), helpers.DefaultLinksPerBlock, b.chunkSize)
 	if err != nil {
-		return cid.Cid{}, nil, nil, fmt.Errorf("create unixfs node: %w", err)
+		return cid.Cid{}, nil, nil, 0, fmt.Errorf("create unixfs node: %w", err)
 	}
 
 	rootCID := nd.Cid()
 
-	allCIDs, allSizes, err := b.collectAllBlocks(ctx, rootCID)
+	// Extract UnixFS logical file size using dagnode.AnalyzeNode
+	// format.Node embeds blocks.Block, so we can pass nd directly
+	nodeInfo, err := dagnode.AnalyzeNode(ctx, nd)
 	if err != nil {
-		return cid.Cid{}, nil, nil, fmt.Errorf("collect all blocks: %w", err)
+		return cid.Cid{}, nil, nil, 0, fmt.Errorf("analyze node: %w", err)
 	}
 
-	return rootCID, allCIDs, allSizes, nil
+	logicalFileSize := nodeInfo.FileSize
+
+	allCIDs, allSizes, err := b.collectAllBlocks(ctx, rootCID)
+	if err != nil {
+		return cid.Cid{}, nil, nil, 0, fmt.Errorf("collect all blocks: %w", err)
+	}
+
+	return rootCID, allCIDs, allSizes, logicalFileSize, nil
 }
 
 func (b *CARBuilder) createDirectoryBlock(ctx context.Context, entry *TreeEntry, entries map[string]*TreeEntry) (cid.Cid, uint64, error) {
@@ -499,7 +523,7 @@ func (b *CARBuilder) writeBlockToCAR(ctx context.Context, blockCID cid.Cid, w io
 			return err
 		}
 		defer file.Close()
-		_, _, _, err = b.createUnixFSBlocks(ctx, file)
+		_, _, _, _, err = b.createUnixFSBlocks(ctx, file)
 	}
 	if err != nil {
 		return fmt.Errorf("regenerate block %s: %w", blockCID, err)
