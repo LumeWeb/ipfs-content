@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/avast/retry-go/v4 v4.7.0
+	github.com/docker/go-units v0.5.0
 	github.com/h2non/filetype v1.1.3
 	github.com/ipfs/boxo v0.37.0
 	github.com/ipfs/go-block-format v0.2.3
@@ -38,7 +39,6 @@ require (
 	github.com/gammazero/deque v1.2.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/ipfs/bbloom v0.0.4 // indirect

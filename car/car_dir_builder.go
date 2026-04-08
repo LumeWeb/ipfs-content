@@ -16,16 +16,16 @@ import (
 	"github.com/samber/lo"
 
 	"go.lumeweb.com/ipfs-content/dagnode"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
 	"go.lumeweb.com/ipfs-content/encoding"
+	"go.lumeweb.com/ipfs-content/internal/carv1"
 	internalio "go.lumeweb.com/ipfs-content/internal/io"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 const (
-	ROOT      = "ROOT"
+	ROOT       = "ROOT"
 	CurrentDir = "."
-	ParentDir   = ".."
+	ParentDir  = ".."
 )
 
 // CARBuilder performs two-pass CAR generation:
@@ -41,7 +41,186 @@ type CARBuilder struct {
 	chunkSize  int64
 }
 
-// TreeSummary contains metadata collected during pass 1.
+// TreeSummary contains metadata collected during pass 1 of CAR generation.
+//
+// This structure enables **two-pass CAR generation** where the first pass builds
+// metadata without retaining all blocks, and the second pass writes the CAR with
+// on-demand block regeneration. This architecture allows size pre-calculation for
+// TUS uploads while bounding memory usage.
+//
+// **Structure Overview:**
+//
+//   - RootCID: Top-level IPFS content identifier pointing to the directory tree root
+//   - TotalSize: Sum of all block sizes in bytes (UnixFS file + directory blocks)
+//   - BlockOrder: Ordered list of block CIDs for deterministic CAR writing
+//   - BlockSizes: Parallel array to BlockOrder with size in bytes for each block
+//   - TreeEntries: Path-based index of all filesystem entries (files and directories)
+//   - CIDToEntry: CID-based index for O(1) entry lookup during block regeneration
+//   - CARSize: Total file size including CARv1 header and all block framing overhead
+//
+// **Key Design Principles:**
+//
+//  1. **Dual Indexing:** TreeEntries (path-based) and CIDToEntry (CID-based) enable
+//     different access patterns during different phases. TreeEntries is used during
+//     BuildSummary for tree construction, while CIDToEntry is used during WriteCAR
+//     for block regeneration.
+//
+//  2. **No Block Retention:** Blocks are NOT stored in TreeSummary after BuildSummary.
+//     They are regenerated during WriteCAR using the filesystem reference stored
+//     in CARBuilder. This bounds memory usage regardless of CAR file size.
+//
+//  3. **Deterministic Order:** BlockOrder ensures blocks are written in a consistent
+//     order needed for correct CAR reconstruction via ReadCAR.
+//
+//  4. **Virtual ROOT:** TreeEntries always contains a special "ROOT" entry that acts
+//     as a virtual root directory for wrapInDir=true mode. This enables directory
+//     wrapping without double-nesting.
+//
+// **Validity Rules and Invariants:**
+//
+//  1. **ROOT Entry Required:** TreeEntries["ROOT"] must always exist. It is a virtual
+//     directory entry with Path="ROOT") that serves as the tree root in wrapInDir mode.
+//
+//  2. **BlockOrder/BlockSizes Alignment:** Length(BlockOrder) must equal Length(BlockSizes).
+//     These parallel arrays must be updated together whenever blocks are added or modified.
+//
+//  3. **No Undef Root CID:** RootCID must not be cid.Undef for a valid CAR file structure.
+//     The only exception is during BuildSummary before the root directory block is created.
+//
+//  4. **Path Consistency:** For each TreeEntry:
+//     - Path is the parent directory path (empty string "" for root-level entries)
+//     - Name is the basename of the entry
+//     - The TreeEntries map key is the full path (e.g., "file.txt" for root-level files,
+//     "dir1/file.txt" for nested files)
+//
+//  5. **ROOT.Children Only Files:** ROOT.Children array contains ONLY root-level files,
+//     not directories. Root-level directories exist in TreeEntries but are NOT added
+//     to ROOT.Children. This is a critical design decision for round-trip compatibility.
+//     Note: While root-level directories are not in ROOT.Children, they ARE added as links
+//     in the ROOT directory block's children list during block creation for proper UnixFS
+//     structure.
+//
+//  6. **Non-ROOT Directories Contain All Children:** Unlike ROOT, non-ROOT directories
+//     contain both files AND subdirectories in their Children arrays.
+//
+//  7. **Directory CID Lifecycle:** Directory entries start with CID.Undef during the
+//     filesystem walk. CIDs are assigned after all child CIDs are known (deep-first
+//     processing required by UnixFS Merkle DAG).
+//
+// **Directory Representation Rules:**
+//
+// Directories are represented differently based on their position in the tree:
+//
+//   - **ROOT (Virtual):** Path="ROOT", IsDir=true, Children=root-level files only
+//   - **Root-Level Directories:** Path="", IsDir=true, NOT in ROOT.Children, Children contain nested items
+//   - **Non-Root Directories:** Path=parent path, IsDir=true, in parent's Children array
+//
+// Example directory structure and representation:
+//
+//	Filesystem:
+//
+//	  file.txt                  (root-level file)
+//	  dir1/                     (root-level directory)
+//	  dir1/file1.txt           (nested file)
+//	  dir1/subdir1/             (nested directory)
+//	  dir1/subdir1/file2.txt   (deeply nested file)
+//
+//	TreeEntries map:
+//
+//	  "ROOT" -> {Path: "ROOT", IsDir: true, Children: ["file.txt"]}
+//	  "file.txt" -> {Path: "", IsDir: false}
+//	  "dir1" -> {Path: "", IsDir: true, Children: ["dir1/file1.txt", "dir1/subdir1"]}
+//	  "dir1/file1.txt" -> {Path: "dir1", IsDir: false}
+//	  "dir1/subdir1" -> {Path: "dir1", IsDir: true, Children: ["dir1/subdir1/file2.txt"]}
+//	  "dir1/subdir1/file2.txt" -> {Path: "dir1/subdir1", IsDir: false}
+//
+// Note that "dir1" is NOT in ROOT.Children, but "file.txt" is.
+//
+// **CIDToEntry Multiplicity:**
+//
+//   - **Files:** Multiple block CIDs (from UnixFS chunking) map to the same TreeEntry.
+//     This enables block regeneration when the LRU cache evicts blocks - any file chunk
+//     CID can be used to locate the TreeEntry containing the original file path.
+//   - **Directories:** Single CID maps to the directory's TreeEntry
+//   - **Root CID:** Maps to ROOT entry (wrapInDir=true) or file entry (wrapInDir=false)
+//
+// When directory CIDs change (e.g., after empty directory pruning), CIDToEntry must be
+// updated: delete(oldCID), entry.CID = newCID, CIDToEntry[newCID] = entry.
+//
+// **Empty Directory Pruning:**
+//
+// Empty directories (directories with no file descendants, direct or indirect) are
+// removed during BuildSummary. Pruning follows these rules:
+//
+//  1. **Recursive Detection:** isDirectoryEmpty() recursively checks all descendants
+//     for any file. A directory with empty subdirectories only is considered empty.
+//
+//  2. **Parent Cleanup:** When a directory is pruned, it is removed from its parent's
+//     Children array.
+//
+//  3. **Block Removal:** The pruned directory's block CID is removed from BlockOrder,
+//     BlockSizes, and CIDToEntry.
+//
+//  4. **CID Regeneration:** ALL parent directories must have their blocks regenerated
+//     because removing a child changes the directory's content hash. This requires a
+//     second pass through directories sorted deep-first.
+//
+//  5. **ROOT Exclusion:** The ROOT entry is explicitly excluded from pruning consideration,
+//     even if empty, to preserve the virtual root structure.
+//
+// **Block Order:**
+//
+// BlockOrder contains all CIDs in the order they must be written to the CAR file:
+//
+//  1. File blocks are added during filesystem walk (in arbitrary order)
+//  2. Directory blocks are added after all directories are sorted by depth descending
+//     (deepest first) so that children CIDs are known before parents
+//  3. After pruning, all remaining directory blocks are regenerated (CIDs may change)
+//
+// The deep-first order is required because UnixFS directory block CIDs depend on
+// their children's CIDs (Merkle DAG property).
+//
+// **Single File Mode (wrapInDir=false):**
+//
+// When wrapInDir=false and the filesystem contains exactly one file with no directories:
+//
+//   - RootCID is assigned directly to the file's CID (no root directory wrapping)
+//   - No directory blocks are created
+//   - CAR header roots: [fileCID] instead of [directoryCID]
+//   - TreeEntries still contains ROOT wrapper with the file in its Children array
+//
+// This optimization simplifies single-file CAR handling and matches the behavior of
+// `ipfs add` without the `--wrap-with-directory` flag.
+//
+// **Path Handling:**
+//
+// Paths are always constructed with forward slash "/" separators, even on Windows:
+//
+//   - No leading slash (relative paths from filesystem root)
+//   - No trailing slash on directories
+//   - No double slashes
+//   - Special path values: "" (root level), "ROOT" (virtual root), "." (current dir)
+//
+// The "." (CurrentDir) special case occurs with single-file filesystem wrappers like
+// testBytesFS where "." opens directly to a file. Normally "." is skipped as a directory,
+// but in this case it's processed as the sole file.
+//
+// **Round-Trip Compatibility:**
+//
+// TreeSummary structure is designed to enable lossless round-trip operations:
+//
+//	BuildSummary → WriteCAR → ReadCAR → reconstructTree = identical TreeSummary
+//
+// The ROOT.Children = files-only rule, root-level directory handling, and deep-first
+// directory block creation are all designed to ensure that a CAR written from this
+// structure can be reconstructed back to the same structure via ReadCAR.
+//
+// **Memory Usage:**
+//
+// TreeSummary itself is compact (O(number of entries) memory). The memory-intensive
+// operation is block creation during BuildSummary, which uses a bounded blockstore
+// (default 100MB limit via NewDAGServiceWithMemoryLimit). Blocks are not stored in
+// TreeSummary after creation.
 type TreeSummary struct {
 	RootCID     cid.Cid
 	TotalSize   uint64
@@ -64,7 +243,139 @@ func (ts *TreeSummary) TotalLogicalFileSize() uint64 {
 	return total
 }
 
-// TreeEntry represents an entry in the filesystem tree.
+// TreeEntry represents a single entry (file or directory) in the filesystem tree.
+//
+// Each TreeEntry is stored in the TreeEntries map, keyed by its full path relative
+// to the filesystem root. The entry contains enough information to reconstruct the
+// directory hierarchy and to regenerate blocks during CAR writing.
+//
+// **Path vs Name Semantics:**
+//
+//   - **Name** is the basename of the entry (e.g., "file.txt" for "dir1/file.txt")
+//   - **Path** is the parent directory path (e.g., "dir1" for "dir1/file.txt")
+//   - **TreeEntries Key** is the full path (e.g., "dir1/file.txt")
+//
+// This separation enables efficient parent-child relationship building and path
+// construction during filesystem walks and DAG traversals.
+//
+// Example:
+//
+//	For entry "dir1/subdir1/file2.txt":
+//	  - Name = "file2.txt"
+//	  - Path = "dir1/subdir1"
+//	  - TreeEntries key = "dir1/subdir1/file2.txt"
+//
+//	For root-level entry "file.txt":
+//	  - Name = "file.txt"
+//	  - Path = "" (empty string indicates no parent)
+//	  - TreeEntries key = "file.txt"
+//
+//	For ROOT entry:
+//	  - Name = "ROOT"
+//	  - Path = "ROOT"
+//	  - TreeEntries key = "ROOT"
+//
+// **Path Values and Meanings:**
+//
+//   - "": Root level (no parent directory)
+//   - "ROOT": Special virtual root (only for the ROOT entry itself)
+//   - "dir1/dir2": Nested directory path (parent is "dir1/dir2")
+//   - ".": Current directory (only seen with single-file wrappers; normally skipped)
+//
+// Note: Paths are always constructed with "/" separators, never with backslashes
+// (even on Windows), to ensure cross-platform consistency.
+//
+// **Directory vs File Representation:**
+//
+//   - **Files:** IsDir=false, have a non-undef CID (UnixFS node)
+//   - **Directories:** IsDir=true, CID may be Undef initially (assigned during block creation)
+//
+// **Children Array:**
+//
+//   - Contains **path strings** (not TreeEntry references) to avoid circular references
+//   - For directories: Full paths of children (e.g., ["dir1/file.txt", "dir1/subdir1"])
+//   - For files: Always empty (files are leaves in the tree)
+//
+// **Children Construction Rules:**
+//
+//  1. **ROOT (virtual):** Children contains ONLY root-level files, NOT root-level directories.
+//     Root-level directories exist in TreeEntries but are NOT added to ROOT.Children.
+//     This is a critical design rule for round-trip compatibility.
+//
+//  2. **Root-Level Directories (Path=""):** Children contain nested items but are NOT
+//     added to ROOT.Children. Example: "dir1" Children = ["dir1/file.txt", "dir1/subdir1"]
+//
+//  3. **Non-ROOT Directories:** Children contain BOTH files AND subdirectories.
+//     Example: "dir1/subdir1" Children = ["dir1/subdir1/file2.txt"]
+//
+//  4. **Files:** Children array is empty ([]string{})
+//
+// **CID Lifecycle:**
+//
+//   - **Files:** CID is assigned immediately during UnixFS node creation and never changes
+//   - **Directories:** CID starts as cid.Undef during filesystem walk, then is assigned
+//     after the directory block is created. Directory CIDs can change when children are
+//     modified (e.g., after empty directory pruning), requiring regeneration.
+//
+// **LogicalFileSize vs ChunkSize:**
+//
+//   - **LogicalFileSize:** Original file size in bytes as stored in UnixFS metadata.
+//     This is the actual file content size before any chunking. Only set for files
+//     (not directories).
+//
+//   - **ChunkSize:** UnixFS chunking boundary size in bytes (default 1MB). Controls how
+//     a file is split into individual blocks during UnixFS node creation. Larger chunks
+//     result in fewer blocks. Only set for files.
+//
+// Relationship example:
+//
+//	LogicalFileSize: 5,242,880 bytes (5MB)
+//	ChunkSize: 1,048,576 bytes (1MB)
+//	Result: File is split into 5 UnixFS blocks (4 full + 1 partial)
+//
+// **Usage in CAR Generation Phases:**
+//
+//	**Phase 1 (BuildSummary):**
+//	  - Created during fs.WalkDir with Path and Name extracted from filesystem paths
+//	  - Files get CID immediately from UnixFS node creation
+//	  - Directories get CID assigned later during directory block creation
+//	  - Parent-child relationships built via Children arrays
+//
+//	**Phase 2 (WriteCAR):**
+//	  - Path+Name used to reopen files from filesystem for block regeneration
+//	  - Children are used to reconstruct directory blocks on demand
+//	  - CID used to identify which block to regenerate (via CIDToEntry map)
+//
+//	**Phase 3 (ReadCAR/reconstructTree):**
+//	  - Path and Name reconstructed during DAG traversal (CAR doesn't store paths)
+//	  - Children arrays rebuilt by walking UnixFS directory link structures
+//	  - CID extracted from IPFS blocks directly
+//
+// **Special Cases:**
+//
+//  1. **ROOT Entry (Virtual):**
+//     Always exists with Path="ROOT", Name="ROOT", IsDir=true. This is a synthetic
+//     entry that acts as the tree root in wrapInDir=true mode. It enables directory
+//     wrapping without creating an extra physical directory in IPFS.
+//
+//  2. **Single-File Mode (CurrentDir="."):**
+//     For single-file filesystem wrappers like testBytesFS, the path "." is processed
+//     as a file (not skipped as a directory). The entry has Name from the filesystem
+//     (e.g., "test.txt") and Path="" to treat it as a root-level entry.
+//
+//  3. **Empty Directory Pruning:**
+//     When a directory is removed (no file descendants), it is removed from its
+//     parent's Children array. The TreeEntry itself remains in TreeEntries map
+//     (for bookkeeping) but is not included in final CAR output.
+//
+// **Validity Rules:**
+//
+//  1. **Path Consistency:** If Path == "ROOT", then Name must also be "ROOT"
+//  2. **Directory CID:** Directory entries may have cid.Undef only before block creation
+//  3. **File CID:** File entries must have non-undefined CID at all times
+//  4. **Children Type:** For directories, Children contains path strings; for files, empty
+//  5. **Non-emptiness:** All fields except CID, Children, and Path must be non-zero/empty.
+//     Path may be empty string "" for root-level entries
 type TreeEntry struct {
 	Path            string
 	Name            string
@@ -487,6 +798,36 @@ func (b *CARBuilder) createDirectoryBlock(ctx context.Context, entry *TreeEntry,
 		}, true
 	})
 
+	// SPECIAL CASE: For ROOT, add root-level directories
+	// Root-level directories have Path="" and are not in ROOT.Children
+	// They must be added as links in ROOT's UnixFS directory block for round-trip compatibility
+	if entry.Name == ROOT {
+		for path, child := range entries {
+			// Skip if not a directory, is ROOT itself, or is nested (Path != "")
+			if !child.IsDir || path == ROOT || child.Path != "" {
+				continue
+			}
+
+			// Check for duplicates (in case directory is already in Children)
+			var alreadyInChildren bool
+			for _, dc := range children {
+				if dc.Name == child.Name {
+					alreadyInChildren = true
+					break
+				}
+			}
+
+			// Add directory link if not already present
+			if !alreadyInChildren {
+				children = append(children, unixfs.DirectoryChild{
+					Name: child.Name,
+					CID:  child.CID,
+					Size: uint64(child.CID.ByteLen()),
+				})
+			}
+		}
+	}
+
 	node, err := b.generator.CreateDirectoryWithLinks(ctx, children)
 	if err != nil {
 		return cid.Cid{}, 0, err
@@ -607,8 +948,6 @@ func (b *CARBuilder) isDirectoryEmpty(summary *TreeSummary, path string) bool {
 
 	return true
 }
-
-
 
 func removeString(slice []string, s string) []string {
 	for i, item := range slice {

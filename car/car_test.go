@@ -1099,7 +1099,6 @@ func TestCAR_Deduplication(t *testing.T) {
 		{"100MB", 100 * 1024 * 1024, "Large file"},
 		{"500MB", 500 * 1024 * 1024, "Very large file"},
 		{"1GB", 1 * 1024 * 1024 * 1024, "Extremely large file"},
-
 	}
 
 	for _, tt := range testCases {
@@ -1114,8 +1113,6 @@ func TestCAR_Deduplication(t *testing.T) {
 			builder := newTestCARBuilder(t)
 			summary, err := builder.BuildSummary(ctx, filesystem, true)
 			require.NoError(t, err)
-
-
 
 			// With all zeros, should have minimal blocks
 			require.GreaterOrEqual(t, len(summary.BlockOrder), 2)
@@ -1151,7 +1148,6 @@ func TestCAR_NoDeduplication(t *testing.T) {
 		{"100MB", 100 * 1024 * 1024, "Large file"},
 		{"500MB", 500 * 1024 * 1024, "Very large file"},
 		{"1GB", 1 * 1024 * 1024 * 1024, "Extremely large file"},
-
 	}
 
 	for _, tt := range testCases {
@@ -1400,11 +1396,11 @@ func TestBuildSummary_ExcludesDotPaths_NestedDirectories(t *testing.T) {
 
 	// Create files in various directories
 	files := map[string]string{
-		"file1.txt":           "content 1",
-		"dir1/file2.txt":      "content 2",
-		"dir2/file3.txt":      "content 3",
-		"dir1/subdir1/file4":  "content 4",
-		"dir1/subdir2/file5":  "content 5",
+		"file1.txt":          "content 1",
+		"dir1/file2.txt":     "content 2",
+		"dir2/file3.txt":     "content 3",
+		"dir1/subdir1/file4": "content 4",
+		"dir1/subdir2/file5": "content 5",
 	}
 
 	for file, content := range files {
@@ -1450,9 +1446,9 @@ func TestBuildSummary_ExcludesDirectoryEntries(t *testing.T) {
 
 	// Create a test filesystem with nested structure
 	filesystem := fstest.MapFS{
-		"file1.txt": &fstest.MapFile{Data: []byte("content 1")},
-		"file2.txt": &fstest.MapFile{Data: []byte("content 2")},
-		"file3.txt": &fstest.MapFile{Data: []byte("content 3")},
+		"file1.txt":      &fstest.MapFile{Data: []byte("content 1")},
+		"file2.txt":      &fstest.MapFile{Data: []byte("content 2")},
+		"file3.txt":      &fstest.MapFile{Data: []byte("content 3")},
 		"dir1/file4.txt": &fstest.MapFile{Data: []byte("content 4")},
 		"dir2/file5.txt": &fstest.MapFile{Data: []byte("content 5")},
 	}
@@ -1561,7 +1557,6 @@ func TestBuildSummary_RootChildrenStructure(t *testing.T) {
 	rootEntry := summary.TreeEntries[ROOT]
 	require.NotNil(t, rootEntry)
 
-
 	// ROOT's children should only contain file paths, not directory paths
 	for _, child := range rootEntry.Children {
 		childEntry := summary.TreeEntries[child]
@@ -1590,7 +1585,7 @@ func TestBuildSummary_WalkBehavior(t *testing.T) {
 
 	// Create a simple filesystem
 	filesystem := fstest.MapFS{
-		"file1.txt": &fstest.MapFile{Data: []byte("content 1")},
+		"file1.txt":      &fstest.MapFile{Data: []byte("content 1")},
 		"dir1/file2.txt": &fstest.MapFile{Data: []byte("content 2")},
 	}
 
@@ -1640,9 +1635,9 @@ func TestBuildSummary_RealFilesystem(t *testing.T) {
 
 	// Create test files
 	files := map[string]string{
-		"file1.txt": "content 1",
-		"file2.txt": "content 2",
-		"file3.txt": "content 3",
+		"file1.txt":      "content 1",
+		"file2.txt":      "content 2",
+		"file3.txt":      "content 3",
 		"dir1/file4.txt": "content 4",
 		"dir2/file5.txt": "content 5",
 	}
@@ -1702,11 +1697,11 @@ func TestHierarchy_NestedDirectories(t *testing.T) {
 
 	// Create a nested filesystem
 	filesystem := fstest.MapFS{
-		"file1.txt":          &fstest.MapFile{Data: []byte("content 1")},
-		"dir1/file2.txt":     &fstest.MapFile{Data: []byte("content 2")},
+		"file1.txt":           &fstest.MapFile{Data: []byte("content 1")},
+		"dir1/file2.txt":      &fstest.MapFile{Data: []byte("content 2")},
 		"dir1/dir2/file3.txt": &fstest.MapFile{Data: []byte("content 3")},
 		"dir1/dir2/file4.txt": &fstest.MapFile{Data: []byte("content 4")},
-		"dir1/file5.txt":     &fstest.MapFile{Data: []byte("content 5")},
+		"dir1/file5.txt":      &fstest.MapFile{Data: []byte("content 5")},
 	}
 
 	builder := newTestCARBuilder(t)
@@ -1714,7 +1709,6 @@ func TestHierarchy_NestedDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	_ = summary.TreeEntries["dir1/dir2"] // Will exist after BuildSummary
-
 
 	// dir1 should NOT be in ROOT.Children (it's a directory, not a file)
 	require.NotContains(t, summary.TreeEntries[ROOT].Children, "dir1",
@@ -1756,7 +1750,6 @@ func TestHierarchy_DirectoryVsFile(t *testing.T) {
 	builder := newTestCARBuilder(t)
 	summary, err := builder.BuildSummary(ctx, filesystem, true)
 	require.NoError(t, err)
-
 
 	// "dir" is a directory (fs.WalkDir visits it with IsDir=true)
 	dirEntry, exists := summary.TreeEntries["dir"]
@@ -1833,10 +1826,10 @@ func TestLogicalFileSizeTracking(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		filesystem       fstest.MapFS
-		wrapInDir        bool
-		expectedTotal    uint64 // Expected sum of logical file sizes
+		name          string
+		filesystem    fstest.MapFS
+		wrapInDir     bool
+		expectedTotal uint64 // Expected sum of logical file sizes
 	}{
 		{
 			name: "single_file",
