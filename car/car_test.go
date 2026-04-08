@@ -1828,6 +1828,96 @@ func TestBuildSummary_SingleFileAsCurrentDir(t *testing.T) {
 	require.NotEqual(t, cid.Undef, summary.RootCID)
 }
 
+// TestLogicalFileSizeTracking tests that TreeSummary correctly tracks UnixFS logical file sizes
+func TestLogicalFileSizeTracking(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		filesystem       fstest.MapFS
+		wrapInDir        bool
+		expectedTotal    uint64 // Expected sum of logical file sizes
+	}{
+		{
+			name: "single_file",
+			filesystem: fstest.MapFS{
+				"file.txt": {Data: []byte("hello world")},
+			},
+			wrapInDir:     true,
+			expectedTotal: 11, // "hello world" = 11 bytes
+		},
+		{
+			name: "multiple_files",
+			filesystem: fstest.MapFS{
+				"file1.txt": {Data: []byte("content 1")},
+				"file2.txt": {Data: []byte("content 2")},
+				"file3.txt": {Data: []byte("content 3")},
+			},
+			wrapInDir:     true,
+			expectedTotal: 27, // 9 + 9 + 9 = 27 bytes
+		},
+		{
+			name: "nested_directories_with_files",
+			filesystem: fstest.MapFS{
+				"dir1/file1.txt":        {Data: []byte("file 1")},
+				"dir1/subdir/file2.txt": {Data: []byte("file 2")},
+				"dir2/file3.txt":        {Data: []byte("file 3")},
+			},
+			wrapInDir:     true,
+			expectedTotal: 18, // 6 + 6 + 6 = 18 bytes
+		},
+		{
+			name: "empty_directory",
+			filesystem: fstest.MapFS{
+				"emptydir": {Mode: fs.ModeDir},
+			},
+			wrapInDir:     true,
+			expectedTotal: 0, // No files
+		},
+		{
+			name: "files_and_empty_directories",
+			filesystem: fstest.MapFS{
+				"file1.txt": {Data: []byte("hello")},
+				"emptydir":  {Mode: fs.ModeDir},
+				"file2.txt": {Data: []byte("world")},
+			},
+			wrapInDir:     true,
+			expectedTotal: 10, // 5 + 5 = 10 bytes
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			builder := newTestCARBuilder(t)
+
+			summary, err := builder.BuildSummary(ctx, tt.filesystem, tt.wrapInDir)
+			require.NoError(t, err)
+			require.NotNil(t, summary)
+
+			// Verify TotalLogicalFileSize returns the expected total
+			logicalTotal := summary.TotalLogicalFileSize()
+			assert.Equal(t, tt.expectedTotal, logicalTotal,
+				"TotalLogicalFileSize() should return %d, got %d", tt.expectedTotal, logicalTotal)
+
+			// Verify each file entry has the correct LogicalFileSize
+			for path, entry := range summary.TreeEntries {
+				if !entry.IsDir && path != ROOT {
+					// This is a file entry
+					assert.Greater(t, entry.LogicalFileSize, uint64(0),
+						"File entry '%s' should have a LogicalFileSize > 0", path)
+				}
+			}
+
+			// Verify TotalSize (block sizes) is different from logical file sizes
+			// because it includes overhead and framing
+			assert.Greater(t, summary.TotalSize, logicalTotal,
+				"TotalSize should be greater than logical file sizes (includes overhead)")
+		})
+	}
+}
+
 // TestBuildSummary_SingleFileAsCurrentDir_NoWrap tests the single-file
 // filesystem with wrapInDir=false to ensure the optimization works.
 func TestBuildSummary_SingleFileAsCurrentDir_NoWrap(t *testing.T) {
