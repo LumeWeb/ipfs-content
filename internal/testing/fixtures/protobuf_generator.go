@@ -13,16 +13,10 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multicodec"
 )
-
-type Test struct {
-	Value []byte `protobuf:"bytes,1,opt,name=value,proto3"`
-}
-
-func (m *Test) Reset()         { *m = Test{} }
-func (m *Test) String() string { return proto.CompactTextString(m) }
-func (m *Test) ProtoMessage()  {}
 
 func main() {
 	size := flag.Int("size", 1024, "Size of protobuf data in bytes")
@@ -33,23 +27,28 @@ func main() {
 	data := make([]byte, *size)
 	rand.Read(data)
 
-	// Create protobuf message with the random data
-	test := &Test{Value: data}
+	// Create protobuf node using boxo's merkledag
+	pbNode := merkledag.NodeWithData(data)
 
-	// Serialize to protobuf
-	protoData, err := proto.Marshal(test)
+	// Set CID builder for dag-pb codec with SHA2-256
+	err := pbNode.SetCidBuilder(cid.V1Builder{Codec: cid.DagProtobuf, MhType: uint64(multicodec.Sha2_256)})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal protobuf: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to set CID builder: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Marshal the protobuf node to get raw bytes
+	protoData, err := pbNode.Marshal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to marshal protobuf node: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Corrupt data if partial flag is set
-	if *partial == 1 {
-		if len(protoData) > 10 {
-			// Corrupt some bytes in the middle
-			for i := len(protoData)/2 - 5; i < len(protoData)/2+5; i++ {
-				protoData[i] = 0xFF
-			}
+	if *partial == 1 && len(protoData) > 10 {
+		// Corrupt some bytes in the middle
+		for i := len(protoData)/2 - 5; i < len(protoData)/2+5; i++ {
+			protoData[i] = 0xFF
 		}
 	}
 
