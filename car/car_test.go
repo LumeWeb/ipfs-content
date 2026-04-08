@@ -1904,9 +1904,9 @@ func TestLogicalFileSizeTracking(t *testing.T) {
 			// Verify each file entry has the correct LogicalFileSize
 			for path, entry := range summary.TreeEntries {
 				if !entry.IsDir && path != ROOT {
-					// This is a file entry
-					assert.Greater(t, entry.LogicalFileSize, uint64(0),
-						"File entry '%s' should have a LogicalFileSize > 0", path)
+					expectedSize := uint64(len(tt.filesystem[path].Data))
+					assert.Equal(t, expectedSize, entry.LogicalFileSize,
+						"File entry '%s' should have LogicalFileSize matching content length", path)
 				}
 			}
 
