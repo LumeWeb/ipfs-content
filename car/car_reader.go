@@ -181,11 +181,10 @@ import (
 //     block metadata, and file information
 //   - error: Error if CAR is invalid, reader doesn't support seeking, or
 //     reconstruction fails
-func ReadCAR(r io.ReadSeeker, memoryLimit uint64) (*TreeSummary, error) {
-	ctx := context.Background()
-
+func ReadCAR(ctx context.Context, r io.ReadSeeker, memoryLimit uint64) (*TreeSummary, error) {
 	// Create indexed blockstore wrapper
 	ibs := blockstore.NewIndexedBlockstore(memoryLimit, r)
+	defer ibs.Close()
 
 	// Index all blocks and load into LRU cache
 	if err := ibs.IndexAll(ctx); err != nil {

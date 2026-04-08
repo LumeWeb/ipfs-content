@@ -41,7 +41,7 @@ func TestCARRoundTrip_NestedDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read CAR back
-	reconstructedSummary, err := ReadCAR(bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
+	reconstructedSummary, err := ReadCAR(ctx, bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
 	require.NoError(t, err)
 
 	t.Logf("Reconstructed summary has %d entries:", len(reconstructedSummary.TreeEntries))
@@ -126,7 +126,7 @@ func TestCARRoundTrip_SingleFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read CAR back
-	reconstructedSummary, err := ReadCAR(bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
+	reconstructedSummary, err := ReadCAR(ctx, bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
 	require.NoError(t, err)
 
 	// Verify match
@@ -164,7 +164,7 @@ func TestCARRoundTrip_DeepNesting(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read CAR back
-	reconstructedSummary, err := ReadCAR(bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
+	reconstructedSummary, err := ReadCAR(ctx, bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
 	require.NoError(t, err)
 
 	t.Logf("Reconstructed deep nesting has %d entries:", len(reconstructedSummary.TreeEntries))
@@ -208,7 +208,7 @@ func TestCARRoundTrip_MultipleRootDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read CAR back
-	reconstructedSummary, err := ReadCAR(bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
+	reconstructedSummary, err := ReadCAR(ctx, bytes.NewReader(carBuf.Bytes()), DefaultMemoryLimit)
 	require.NoError(t, err)
 
 	// Verify all root-level directories preserved

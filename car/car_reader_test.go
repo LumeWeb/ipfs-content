@@ -31,7 +31,7 @@ func TestReadCAR(t *testing.T) {
 	}
 
 	// Read CAR back
-	summary, err := ReadCAR(bytes.NewReader(carBuffer.Bytes()), 10*1024*1024)
+	summary, err := ReadCAR(ctx, bytes.NewReader(carBuffer.Bytes()), 10*1024*1024)
 	if err != nil {
 		t.Fatalf("Failed to read CAR: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestReadCARSimpleFile(t *testing.T) {
 	}
 
 	// Read CAR back
-	summary, err := ReadCAR(bytes.NewReader(carBuffer.Bytes()), 10*1024*1024)
+	summary, err := ReadCAR(ctx, bytes.NewReader(carBuffer.Bytes()), 10*1024*1024)
 	if err != nil {
 		t.Fatalf("Failed to read CAR: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestReadCARMemory(t *testing.T) {
 
 	for _, limit := range testCases {
 		t.Run(string(rune(limit)), func(t *testing.T) {
-			summary, err := ReadCAR(bytes.NewReader(carBytes), limit)
+			summary, err := ReadCAR(ctx, bytes.NewReader(carBytes), limit)
 			if err != nil {
 				t.Errorf("Failed to read CAR with limit %d: %v", limit, err)
 				return
@@ -209,8 +209,8 @@ func BenchmarkReadCAR(b *testing.B) {
 	carBytes := carBuffer.Bytes()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := ReadCAR(bytes.NewReader(carBytes), 1024*1024)
+	for range b.N {
+		_, err := ReadCAR(ctx, bytes.NewReader(carBytes), 1024*1024)
 		if err != nil {
 			b.Fatalf("Failed to read CAR: %v", err)
 		}
@@ -235,7 +235,7 @@ func TestReadCAR_ReadSeeker(t *testing.T) {
 	// Test with io.Reader (not io.ReadSeeker) - should fail
 	// We need to create a test that actually uses the function
 	// For now, just verify it works with ReadSeeker
-	_, err = ReadCAR(bytes.NewReader(carBuffer.Bytes()), 1024*1024)
+	_, err = ReadCAR(ctx, bytes.NewReader(carBuffer.Bytes()), 1024*1024)
 	if err != nil {
 		t.Fatalf("Failed to read CAR with ReadSeeker: %v", err)
 	}
@@ -243,6 +243,8 @@ func TestReadCAR_ReadSeeker(t *testing.T) {
 
 // Create a simple test for reading a real CAR file if one exists
 func TestReadCARFromFile(t *testing.T) {
+	ctx := context.Background()
+
 	// Skip if no test CAR file exists
 	testCARPath := os.Getenv("TEST_CAR_FILE")
 	if testCARPath == "" {
@@ -256,7 +258,7 @@ func TestReadCARFromFile(t *testing.T) {
 	defer file.Close()
 
 	// Read CAR file
-	summary, err := ReadCAR(file, 100*1024*1024)
+	summary, err := ReadCAR(ctx, file, 100*1024*1024)
 	if err != nil {
 		t.Fatalf("Failed to read CAR file: %v", err)
 	}

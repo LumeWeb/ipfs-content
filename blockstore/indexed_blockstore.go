@@ -56,7 +56,10 @@ func (ibs *IndexedBlockstore) IndexAll(ctx context.Context) error {
 		}
 
 		// Capture offset before reading this block
-		offset, _ := ibs.reader.Seek(0, io.SeekCurrent)
+		offset, err := ibs.reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return fmt.Errorf("get current offset: %w", err)
+		}
 
 		// Read next block
 		blk, err := cr.Next()

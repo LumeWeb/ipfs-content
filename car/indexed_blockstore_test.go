@@ -37,7 +37,7 @@ func TestIndexedBlockstore_Reload(t *testing.T) {
 	}
 
 	// Read CAR with small memory limit (10KB) to force eviction
-	summary, err := ReadCAR(bytes.NewReader(carBuffer.Bytes()), 10*1024)
+	summary, err := ReadCAR(context.Background(), bytes.NewReader(carBuffer.Bytes()), 10*1024)
 	if err != nil {
 		t.Fatalf("Failed to read CAR with small cache: %v", err)
 	}

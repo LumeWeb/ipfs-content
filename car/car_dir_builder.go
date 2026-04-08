@@ -802,12 +802,21 @@ func (b *CARBuilder) createDirectoryBlock(ctx context.Context, entry *TreeEntry,
 	// Root-level directories have Path="" and are not in ROOT.Children
 	// They must be added as links in ROOT's UnixFS directory block for round-trip compatibility
 	if entry.Name == ROOT {
+		// Collect root-level directories first to ensure deterministic ordering
+		var rootDirs []string
 		for path, child := range entries {
 			// Skip if not a directory, is ROOT itself, or is nested (Path != "")
 			if !child.IsDir || path == ROOT || child.Path != "" {
 				continue
 			}
-
+			rootDirs = append(rootDirs, path)
+		}
+		// Sort to ensure deterministic CID generation
+		sort.Strings(rootDirs)
+		
+		for _, path := range rootDirs {
+			child := entries[path]
+			
 			// Check for duplicates (in case directory is already in Children)
 			var alreadyInChildren bool
 			for _, dc := range children {
