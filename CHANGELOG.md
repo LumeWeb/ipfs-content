@@ -1,3 +1,9 @@
+## 0.1.9 (2026-04-08)
+
+### Features
+
+- track UnixFS logical file size separately from block size
+
 ## 0.1.8 (2026-03-21)
 
 ### Fixes
