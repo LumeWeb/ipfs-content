@@ -1,3 +1,14 @@
+## 0.1.10 (2026-04-08)
+
+### Features
+
+- add CAR reading with memory-bounded support
+
+### Fixes
+
+- update protobuf_generator to use boxo for test fixture generation
+- Seek error handling, deterministic map iteration, context support
+
 ## 0.1.9 (2026-04-08)
 
 ### Features
