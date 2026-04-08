@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 
+	"github.com/docker/go-units"
 	"github.com/ipfs/boxo/blockservice"
 	boxoblockstore "github.com/ipfs/boxo/blockstore"
 	"github.com/ipfs/boxo/exchange/offline"
@@ -15,12 +16,14 @@ import (
 	"github.com/multiformats/go-varint"
 
 	"go.lumeweb.com/ipfs-content/blockstore"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
 	"go.lumeweb.com/ipfs-content/encoding"
+	"go.lumeweb.com/ipfs-content/internal/carv1"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 // DefaultMemoryLimit is the default memory limit for LRU blockstore operations (100MB).
+const DefaultMemoryLimit = uint64(100 * units.MB)
+
 // NewDAGServiceWithMemoryLimit creates a new LRU blockstore, blockservice, and DAG service trio
 // with the specified memory limit. This is a convenience function for setting up the IPFS
 // DAG infrastructure with memory-constrained block storage.
@@ -145,10 +148,11 @@ func CalculateCARSize(summary *TreeSummary) (int64, error) {
 // The caller is responsible for calling builder.WriteCAR() to stream the output.
 //
 // Example:
-//   builder, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
-//   carSize := car.CalculateCARSize(summary)
-//   // ... decide upload method based on carSize ...
-//   err = builder.WriteCAR(ctx, writer)
+//
+//	builder, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
+//	carSize := car.CalculateCARSize(summary)
+//	// ... decide upload method based on carSize ...
+//	err = builder.WriteCAR(ctx, writer)
 func PrepareCAR(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuilder, *TreeSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -160,5 +164,3 @@ func PrepareCAR(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuil
 	}
 	return builder, summary, nil
 }
-
-
