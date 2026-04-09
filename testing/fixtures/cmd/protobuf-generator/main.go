@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
@@ -84,11 +83,13 @@ func run() error {
 	if len(flagArgs) > 0 {
 		outputDir = flagArgs[0]
 	} else {
-		// Default to fixtures directory location
-		_, filename, _, _ := runtime.Caller(0)
-		cmdDir := filepath.Dir(filename)
-		projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
-		outputDir = filepath.Join(projectRoot, "internal", "testing", "fixtures")
+		// Use current working directory instead of runtime.Caller for reliable path resolution
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+		// Default to fixtures/data directory location
+		outputDir = filepath.Join(cwd, "internal", "testing", "fixtures", "data")
 	}
 	// Use 1/0 instead of true/false for consistent naming
 	missingFlag := 0
@@ -119,6 +120,12 @@ func run() error {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(info); err != nil {
 		return fmt.Errorf("failed to write info file: %w", err)
+	}
+
+	// Write the block data to a .block file
+	blockFile := filepath.Join(outputDir, fmt.Sprintf("protobuf_%d_%d.block", *size, missingFlag))
+	if err := os.WriteFile(blockFile, protoData, 0644); err != nil {
+		return fmt.Errorf("failed to write block file: %w", err)
 	}
 
 	return nil

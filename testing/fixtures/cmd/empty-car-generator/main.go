@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
@@ -12,20 +11,19 @@ import (
 )
 
 func main() {
-	// Get source file location using runtime
-	_, filename, _, _ := runtime.Caller(0)
-	cmdDir := filepath.Dir(filename)
-
 	// Check for optional fixtures directory override
 	var carsDir string
 	if len(os.Args) > 1 {
 		carsDir = filepath.Join(os.Args[1], "cars")
 	} else {
-		// Navigate from testing/fixtures/cmd/empty-car-generator to internal/testing/fixtures/cars
-		// Need to go up 4 levels to reach project root:
-		// testing/fixtures/cmd/empty-car-generator -> testing/fixtures/cmd -> testing/fixtures -> testing -> .
-		projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
-		fixturesDir := filepath.Join(projectRoot, "internal", "testing", "fixtures")
+		// Use current working directory for reliable path resolution
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Println("Error getting working directory:", err)
+			return
+		}
+		// Default to internal/testing/fixtures/cars
+		fixturesDir := filepath.Join(cwd, "internal", "testing", "fixtures")
 		carsDir = filepath.Join(fixturesDir, "cars")
 	}
 	
