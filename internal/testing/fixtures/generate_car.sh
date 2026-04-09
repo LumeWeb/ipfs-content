@@ -24,7 +24,7 @@ DEFAULT_OUTPUT_DIR="$SCRIPT_DIR/cars"
 DEFAULT_TEMP_DIR="$SCRIPT_DIR/tmp"
 OUTPUT_DIR="${1:-$DEFAULT_OUTPUT_DIR}"
 mkdir -p "$DEFAULT_TEMP_DIR"
-TEMP_DIR=$(mktemp -d "$DEFAULT_TEMP_DIR/ipfs-test-car.XXXXXX")
+TEMP_DIR=$(mktemp -d "$DEFAULT_TEMP_DIR/ipfs-test-car.XXXXXX") || { echo "Failed to create temp directory" >&2; exit 1; }
 echo "Generating CAR fixtures in: $TEMP_DIR"
 mkdir -p -- "${OUTPUT_DIR}"
 

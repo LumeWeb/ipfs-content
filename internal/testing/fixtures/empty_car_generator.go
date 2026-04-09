@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,11 +51,11 @@ func main() {
 		fmt.Println("Error opening CAR file for verification:", err)
 		return
 	}
-	defer func(f *os.File) {
-		if err := f.Close(); err != nil {
-			log.Printf("Warning: failed to close file: %v", err)
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Println("Error closing verification file:", cerr)
 		}
-	}(f)
+	}()
 
 	r, err := carv2.NewReader(f)
 	if err != nil {
