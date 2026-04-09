@@ -1,3 +1,20 @@
+## 0.1.12 (2026-04-09)
+
+### Features
+
+- enhance test fixtures with CAR file generation support
+- enable external test harness access to fixture utilities
+- add programmatic fixture discovery API
+
+### Fixes
+
+- resolve shellcheck warnings in test fixture scripts
+- add fixture infrastructure and improve package vendoring
+- implement missing Big Buck Bunny CAR fixture generation
+- standardize error handling and fix duplicate command execution
+- improve error handling robustness in test fixture generation
+- clean up test log output to avoid memory address dumping
+
 ## 0.1.11 (2026-04-09)
 
 ### Fixes
