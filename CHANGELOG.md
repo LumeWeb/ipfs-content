@@ -1,3 +1,9 @@
+## 0.1.11 (2026-04-09)
+
+### Fixes
+
+- use DefaultSplitter when chunkSize <= 0
+
 ## 0.1.10 (2026-04-08)
 
 ### Features
