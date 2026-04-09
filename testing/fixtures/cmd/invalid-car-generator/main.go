@@ -1,5 +1,3 @@
-//go:build ignore
-
 package main
 
 import (
@@ -16,10 +14,15 @@ import (
 func main() {
 	// Get source file location using runtime
 	_, filename, _, _ := runtime.Caller(0)
-	cwd := filepath.Dir(filename)
-
-	// Define the output CAR file path in the cars/ subdirectory
-	carsDir := filepath.Join(cwd, "cars")
+	cmdDir := filepath.Dir(filename)
+	
+	// Navigate from testing/fixtures/cmd/invalid-car-generator to internal/testing/fixtures/cars
+	// Need to go up 4 levels to reach project root:
+	// testing/fixtures/cmd/invalid-car-generator -> testing/fixtures/cmd -> testing/fixtures -> testing -> .
+	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
+	fixturesDir := filepath.Join(projectRoot, "internal", "testing", "fixtures")
+	carsDir := filepath.Join(fixturesDir, "cars")
+	
 	if err := os.MkdirAll(carsDir, 0755); err != nil {
 		fmt.Println("Error creating cars directory:", err)
 		return
