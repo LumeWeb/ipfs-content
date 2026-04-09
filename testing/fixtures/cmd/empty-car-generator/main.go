@@ -15,13 +15,19 @@ func main() {
 	// Get source file location using runtime
 	_, filename, _, _ := runtime.Caller(0)
 	cmdDir := filepath.Dir(filename)
-	
-	// Navigate from testing/fixtures/cmd/empty-car-generator to internal/testing/fixtures/cars
-	// Need to go up 4 levels to reach project root:
-	// testing/fixtures/cmd/empty-car-generator -> testing/fixtures/cmd -> testing/fixtures -> testing -> .
-	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
-	fixturesDir := filepath.Join(projectRoot, "internal", "testing", "fixtures")
-	carsDir := filepath.Join(fixturesDir, "cars")
+
+	// Check for optional fixtures directory override
+	var carsDir string
+	if len(os.Args) > 1 {
+		carsDir = filepath.Join(os.Args[1], "cars")
+	} else {
+		// Navigate from testing/fixtures/cmd/empty-car-generator to internal/testing/fixtures/cars
+		// Need to go up 4 levels to reach project root:
+		// testing/fixtures/cmd/empty-car-generator -> testing/fixtures/cmd -> testing/fixtures -> testing -> .
+		projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
+		fixturesDir := filepath.Join(projectRoot, "internal", "testing", "fixtures")
+		carsDir = filepath.Join(fixturesDir, "cars")
+	}
 	
 	if err := os.MkdirAll(carsDir, 0755); err != nil {
 		fmt.Println("Error creating cars directory:", err)

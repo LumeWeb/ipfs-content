@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
@@ -78,8 +79,16 @@ func run() error {
 
 	// Create JSON info file
 	outputDir := os.Getenv("OUTPUT_DIR")
-	if outputDir == "" {
-		outputDir = "."
+	// Check for positional argument override (fixtures directory)
+	flagArgs := flag.Args()
+	if len(flagArgs) > 0 {
+		outputDir = flagArgs[0]
+	} else {
+		// Default to fixtures directory location
+		_, filename, _, _ := runtime.Caller(0)
+		cmdDir := filepath.Dir(filename)
+		projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(cmdDir))))
+		outputDir = filepath.Join(projectRoot, "internal", "testing", "fixtures")
 	}
 	// Use 1/0 instead of true/false for consistent naming
 	missingFlag := 0
