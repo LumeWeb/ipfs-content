@@ -11,15 +11,17 @@ import (
 	multicodec "github.com/multiformats/go-multicodec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	testingutil "go.lumeweb.com/ipfs-content/internal/testing"
 )
 
 var (
 	// Test CIDs for use across tests
-	testCID1 = mustGenerateCID("test1")
-	testCID2 = mustGenerateCID("test2")
-	testCID3 = mustGenerateCID("test3")
-	testCID4 = mustGenerateCID("test4")
-	testCID5 = mustGenerateCID("test5")
+	testCID1 = testingutil.MustGenerateCID("test1")
+	testCID2 = testingutil.MustGenerateCID("test2")
+	testCID3 = testingutil.MustGenerateCID("test3")
+	testCID4 = testingutil.MustGenerateCID("test4")
+	testCID5 = testingutil.MustGenerateCID("test5")
 
 	// Test data
 	testData1 = []byte("test data block 1")
@@ -28,19 +30,6 @@ var (
 	testData4 = []byte("test data block 4")
 	testData5 = []byte("test data block 5")
 )
-
-func mustGenerateCID(data string) cid.Cid {
-	c, err := cid.Prefix{
-		Version:  1,
-		Codec:    0x70, // dag-pb
-		MhType:   0x12, // sha2-256
-		MhLength: -1,
-	}.Sum([]byte(data))
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
 
 func NewTestBlock(cid cid.Cid, data []byte) blockformat.Block {
 	block, err := blockformat.NewBlockWithCid(data, cid)
@@ -144,7 +133,7 @@ func TestMultiLevelParent(t *testing.T) {
 
 	// Level 2: parent of parent and leaves
 	rootData := createNodeWithLinks(testCID3, testCID4, testCID5)
-	root := NewTestBlock(mustGenerateCID("root"), rootData)
+	root := NewTestBlock(testingutil.MustGenerateCID("root"), rootData)
 	require.NoError(t, bs.Put(context.TODO(), root))
 
 	// Verify levels
@@ -153,7 +142,7 @@ func TestMultiLevelParent(t *testing.T) {
 	assert.Equal(t, 1, bs.GetLevel(testCID3))
 	assert.Equal(t, 0, bs.GetLevel(testCID4))
 	assert.Equal(t, 0, bs.GetLevel(testCID5))
-	assert.Equal(t, 2, bs.GetLevel(mustGenerateCID("root")))
+	assert.Equal(t, 2, bs.GetLevel(testingutil.MustGenerateCID("root")))
 }
 
 // TestCohortRotation verifies cohorts rotate when exceeding max levels
@@ -165,8 +154,8 @@ func TestLevelRotation(t *testing.T) {
 
 	// Create leaves at level 0
 	leaves := []cid.Cid{
-		mustGenerateCID("leaf0"),
-		mustGenerateCID("leaf1"),
+		testingutil.MustGenerateCID("leaf0"),
+		testingutil.MustGenerateCID("leaf1"),
 	}
 	for _, leafCID := range leaves {
 		block := NewTestBlock(leafCID, []byte("data"))
@@ -180,7 +169,7 @@ func TestLevelRotation(t *testing.T) {
 
 	// Create parent at level 1
 	parentData := createNodeWithLinks(leaves...)
-	parentCID := mustGenerateCID("parent1")
+	parentCID := testingutil.MustGenerateCID("parent1")
 	block := NewTestBlock(parentCID, parentData)
 	require.NoError(t, bs.Put(context.TODO(), block))
 	assert.Equal(t, 1, bs.GetLevel(parentCID))
@@ -188,7 +177,7 @@ func TestLevelRotation(t *testing.T) {
 	// Create grandparent at level 2 (should now exceed max of 2 levels)
 	// Level 0 should be evicted
 	grandparentData := createNodeWithLinks(parentCID)
-	grandparentCID := mustGenerateCID("grandparent")
+	grandparentCID := testingutil.MustGenerateCID("grandparent")
 	block2 := NewTestBlock(grandparentCID, grandparentData)
 	require.NoError(t, bs.Put(context.TODO(), block2))
 	assert.Equal(t, 2, bs.GetLevel(grandparentCID))
@@ -383,7 +372,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := range 10 {
 		go func(index int) {
 			for j := range 100 {
-				cid := mustGenerateCID(string(rune(index*100 + j)))
+				cid := testingutil.MustGenerateCID(string(rune(index*100 + j)))
 				block := NewTestBlock(cid, []byte("data"))
 				if err := bs.Put(context.Background(), block); err != nil {
 					errors <- err
@@ -413,7 +402,7 @@ func BenchmarkPut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := range b.N {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		bs.Put(context.TODO(), NewTestBlock(cid, testData1))
 	}
 }
@@ -424,7 +413,7 @@ func BenchmarkPutLeaf(b *testing.B) {
 
 	b.ResetTimer()
 	for i := range b.N {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		leaf := NewTestBlock(cid, []byte("leaf data"))
 		bs.Put(context.TODO(), leaf)
 	}
@@ -436,16 +425,16 @@ func BenchmarkPutParent(b *testing.B) {
 
 	// Pre-populate leaves
 	for i := range 100 {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		leaf := NewTestBlock(cid, []byte("leaf"))
 		bs.Put(context.TODO(), leaf)
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		parentData := createNodeWithLinks(cid)
-		parent := NewTestBlock(mustGenerateCID(string(rune(i+100))), parentData)
+		parent := NewTestBlock(testingutil.MustGenerateCID(string(rune(i+100))), parentData)
 		bs.Put(context.TODO(), parent)
 	}
 }
@@ -456,14 +445,14 @@ func BenchmarkGet(b *testing.B) {
 
 	// Pre-populate
 	for i := range 1000 {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		block := NewTestBlock(cid, []byte("data"))
 		bs.Put(context.TODO(), block)
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		cid := mustGenerateCID(string(rune(i % 1000)))
+		cid := testingutil.MustGenerateCID(string(rune(i % 1000)))
 		bs.Get(context.TODO(), cid)
 	}
 }
@@ -474,14 +463,14 @@ func BenchmarkGetLevel(b *testing.B) {
 
 	// Pre-populate
 	for i := range 1000 {
-		cid := mustGenerateCID(string(rune(i)))
+		cid := testingutil.MustGenerateCID(string(rune(i)))
 		block := NewTestBlock(cid, []byte(iotaString(i)))
 		bs.Put(context.TODO(), block)
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		cid := mustGenerateCID(string(rune(i % 1000)))
+		cid := testingutil.MustGenerateCID(string(rune(i % 1000)))
 		bs.GetLevel(cid)
 	}
 }

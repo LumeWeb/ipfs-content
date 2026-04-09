@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	carv1 "go.lumeweb.com/ipfs-content/internal/carv1"
+	carv2 "go.lumeweb.com/ipfs-content/internal/carv2"
+	carv2util "go.lumeweb.com/ipfs-content/internal/carv2/util"
 )
 
 // CarTestSuite provides a suite for CAR-related tests
@@ -24,13 +25,13 @@ type CarTestSuite struct {
 
 // createValidCARHeader creates a minimal valid CARv1 for testing
 func createValidCARHeader(rootCID cid.Cid) []byte {
-	header := &carv1.CarHeader{
+	header := &carv2.CarHeader{
 		Roots:   []cid.Cid{rootCID},
 		Version: 1,
 	}
 	
 	buf := new(bytes.Buffer)
-	err := carv1.WriteHeader(header, buf)
+	err := carv2.WriteHeader(header, buf)
 	if err != nil {
 		panic("failed to create CAR header: " + err.Error())
 	}
@@ -49,7 +50,7 @@ func (s *CarTestSuite) TestDetectCAR_WithValidCARData() {
 	// Add a valid block after header
 	buf := new(bytes.Buffer)
 	buf.Write(header)
-	err := carv1.WriteBlock(buf, block.Cid(), block.RawData())
+	err := carv2util.WriteBlock(buf, block.Cid(), block.RawData())
 	s.Require().NoError(err)
 	
 	reader := bytes.NewReader(buf.Bytes())
@@ -159,13 +160,13 @@ func (s *CarTestSuite) TestDetectCAR_DetectsMinimalCAR() {
 	block := blocks.NewBlock([]byte("x"))
 	rootCID := block.Cid()
 	
-	header := &carv1.CarHeader{
+	header := &carv2.CarHeader{
 		Roots:   []cid.Cid{rootCID},
 		Version: 1,
 	}
 	
 	buf := new(bytes.Buffer)
-	err := carv1.WriteHeader(header, buf)
+	err := carv2.WriteHeader(header, buf)
 	s.Require().NoError(err)
 	
 	// Don't add any blocks - just the header
@@ -182,13 +183,13 @@ func (s *CarTestSuite) TestDetectCAR_RejectsInvalidVersion() {
 	block := blocks.NewBlock([]byte("test data"))
 	rootCID := block.Cid()
 	
-	header := &carv1.CarHeader{
+	header := &carv2.CarHeader{
 		Roots:   []cid.Cid{rootCID},
 		Version: 2, // Invalid version
 	}
 	
 	buf := new(bytes.Buffer)
-	err := carv1.WriteHeader(header, buf)
+	err := carv2.WriteHeader(header, buf)
 	s.Require().NoError(err)
 	
 	reader := bytes.NewReader(buf.Bytes())
@@ -201,13 +202,13 @@ func (s *CarTestSuite) TestDetectCAR_RejectsInvalidVersion() {
 
 func (s *CarTestSuite) TestDetectCAR_AcceptsEmptyRoots() {
 	// CAR files with empty roots are still valid CAR format (just empty)
-	header := &carv1.CarHeader{
+	header := &carv2.CarHeader{
 		Roots:   []cid.Cid{}, // Empty roots
 		Version: 1,
 	}
 	
 	buf := new(bytes.Buffer)
-	err := carv1.WriteHeader(header, buf)
+	err := carv2.WriteHeader(header, buf)
 	s.Require().NoError(err)
 	
 	reader := bytes.NewReader(buf.Bytes())
@@ -226,17 +227,17 @@ func (s *CarTestSuite) TestDetectCAR_WithLargeCARData() {
 	buf := new(bytes.Buffer)
 	
 	// Write header
-	header := &carv1.CarHeader{
+	header := &carv2.CarHeader{
 		Roots:   []cid.Cid{rootCID},
 		Version: 1,
 	}
-	err := carv1.WriteHeader(header, buf)
+	err := carv2.WriteHeader(header, buf)
 	s.Require().NoError(err)
 	
 	// Write many blocks to exceed 512 bytes
 	for i := 0; i < 100; i++ {
 		block := blocks.NewBlock([]byte("padding to make the CAR larger than 512 bytes"))
-		err := carv1.WriteBlock(buf, block.Cid(), block.RawData())
+		err := carv2util.WriteBlock(buf, block.Cid(), block.RawData())
 		s.Require().NoError(err)
 	}
 	

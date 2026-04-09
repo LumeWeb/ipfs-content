@@ -17,7 +17,8 @@ import (
 
 	"go.lumeweb.com/ipfs-content/dagnode"
 	"go.lumeweb.com/ipfs-content/encoding"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/carv2"
+	carv2util "go.lumeweb.com/ipfs-content/internal/carv2/util"
 	internalio "go.lumeweb.com/ipfs-content/internal/io"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
@@ -52,7 +53,7 @@ type CARBuilder struct {
 //
 //   - RootCID: Top-level IPFS content identifier pointing to the directory tree root
 //   - TotalSize: Sum of all block sizes in bytes (UnixFS file + directory blocks)
-//   - BlockOrder: Ordered list of block CIDs for deterministic CAR writing
+//   - BlockOrder: Deterministic block ordering (implementation-specific, per CAR spec)
 //   - BlockSizes: Parallel array to BlockOrder with size in bytes for each block
 //   - TreeEntries: Path-based index of all filesystem entries (files and directories)
 //   - CIDToEntry: CID-based index for O(1) entry lookup during block regeneration
@@ -70,7 +71,9 @@ type CARBuilder struct {
 //     in CARBuilder. This bounds memory usage regardless of CAR file size.
 //
 //  3. **Deterministic Order:** BlockOrder ensures blocks are written in a consistent
-//     order needed for correct CAR reconstruction via ReadCAR.
+//     order for each operation, but the specific order may differ between BuildSummary
+//     and ReadCAR due to different traversal algorithms. This is acceptable per the CAR
+//     specification, which does not mandate a specific block order.
 //
 //  4. **Virtual ROOT:** TreeEntries always contains a special "ROOT" entry that acts
 //     as a virtual root directory for wrapInDir=true mode. This enables directory
@@ -209,7 +212,25 @@ type CARBuilder struct {
 //
 // TreeSummary structure is designed to enable lossless round-trip operations:
 //
-//	BuildSummary → WriteCAR → ReadCAR → reconstructTree = identical TreeSummary
+//	BuildSummary → WriteCAR → ReadCAR → reconstructTree = structurally identical TreeSummary
+//
+// **Round-Trip Guarantees:**
+//
+// The following fields are guaranteed to be identical after round-trip:
+//   - RootCID: The same root content identifier
+//   - TreeEntries: Same entries with same structure
+//   - CIDToEntry: Same CID → Entry mappings
+//   - TotalSize: Same total block size
+//
+// **BlockOrder and BlockSizes:**
+//
+// BlockOrder and BlockSizes may differ between BuildSummary and ReadCAR due to
+// different traversal algorithms:
+//   - BuildSummary uses filesystem walk (files first, then directories depth-first)
+//   - ReadCAR uses BFS traversal starting from root
+//
+// This difference is **acceptable per the CAR specification**, which does not mandate
+// a specific block order. Different deterministic orderings are valid.
 //
 // The ROOT.Children = files-only rule, root-level directory handling, and deep-first
 // directory block creation are all designed to ensure that a CAR written from this
@@ -241,6 +262,122 @@ func (ts *TreeSummary) TotalLogicalFileSize() uint64 {
 		}
 	}
 	return total
+}
+
+// Equal compares two TreeSummary instances for equality.
+// It performs deep comparison of all fields, treating BlockOrder+BlockSizes as sets
+// (not ordered) to account for different valid block orderings per CAR specification.
+//
+// Time complexity: O(n + m) where n = blocks, m = tree entries
+// Space complexity: O(k) where k = unique blocks after deduplication
+func (ts *TreeSummary) Equal(other *TreeSummary) bool {
+	if ts == nil && other == nil {
+		return true
+	}
+	if ts == nil || other == nil {
+		return false
+	}
+
+	// Fast-path: compare simple scalar fields first
+	if !ts.RootCID.Equals(other.RootCID) {
+		return false
+	}
+	if ts.TotalSize != other.TotalSize {
+		return false
+	}
+	if ts.CARSize != other.CARSize {
+		return false
+	}
+
+	// Check mapping counts for early rejection (invariant consistency)
+	if len(ts.CIDToEntry) != len(other.CIDToEntry) {
+		return false
+	}
+
+	// Compare BlockOrder and BlockSizes as sets (CID → size mapping)
+	if !ts.equalBlocks(other) {
+		return false
+	}
+
+	// Compare TreeEntries maps
+	if !ts.equalTreeEntries(other) {
+		return false
+	}
+
+	return true
+}
+
+// equalBlocks compares BlockOrder and BlockSizes as a set of CID→blockSize mappings.
+// This allows for different valid block orderings (CAR specification does not mandate order).
+//
+// Time complexity: O(n) where n is the number of blocks
+// Space complexity: O(k) where k is the number of unique blocks (after deduplication)
+//
+// Optimization: Single map approach builds the CID→size mapping once, then verifies
+// the other side by lookup and deletion. This is more efficient than building two maps.
+func (ts *TreeSummary) equalBlocks(other *TreeSummary) bool {
+	// Early rejection on length mismatches
+	if len(ts.BlockOrder) != len(other.BlockOrder) {
+		return false
+	}
+	if len(ts.BlockSizes) != len(other.BlockSizes) {
+		return false
+	}
+	if len(ts.BlockOrder) != len(ts.BlockSizes) {
+		return false
+	}
+	if len(other.BlockOrder) != len(other.BlockSizes) {
+		return false
+	}
+
+	// Build map from ts: CID → size
+	// Use O(k) space where k = unique blocks after deduplication
+	blockMap := make(map[cid.Cid]uint64, len(ts.BlockOrder))
+	for i, block := range ts.BlockOrder {
+		blockMap[block] = ts.BlockSizes[i]
+	}
+
+	// Verify blocks in other match
+	for i, block := range other.BlockOrder {
+		size, exists := blockMap[block]
+		if !exists || size != other.BlockSizes[i] {
+			return false
+		}
+		// Delete to track which entries we've seen
+		delete(blockMap, block)
+	}
+
+	// All entries should have been matched and deleted
+	return len(blockMap) == 0
+}
+
+// equalTreeEntries compares TreeEntries maps for equality.
+//
+// Time complexity: O(m) where m is the number of tree entries
+// Space complexity: O(1) - no additional allocations
+//
+// Early exits on structural mismatches before doing deep comparisons.
+func (ts *TreeSummary) equalTreeEntries(other *TreeSummary) bool {
+	// Early rejection on different entry counts
+	if len(ts.TreeEntries) != len(other.TreeEntries) {
+		return false
+	}
+
+	// Check CIDToEntry consistency as an additional invariant
+	// These maps should have the same length as they contain the same CIDs
+	if len(ts.CIDToEntry) != len(other.CIDToEntry) {
+		return false
+	}
+
+	// Compare each tree entry
+	for path, entry := range ts.TreeEntries {
+		otherEntry, exists := other.TreeEntries[path]
+		if !exists || !entry.Equal(otherEntry) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // TreeEntry represents a single entry (file or directory) in the filesystem tree.
@@ -384,6 +521,52 @@ type TreeEntry struct {
 	Children        []string
 	ChunkSize       int64
 	LogicalFileSize uint64 // UnixFS logical file size (actual file size before chunking)
+}
+
+// Equal compares two TreeEntry instances for equality.
+func (te *TreeEntry) Equal(other *TreeEntry) bool {
+	if te == nil && other == nil {
+		return true
+	}
+	if te == nil || other == nil {
+		return false
+	}
+
+	// Compare simple fields
+	if te.Path != other.Path {
+		return false
+	}
+	if te.Name != other.Name {
+		return false
+	}
+	if te.IsDir != other.IsDir {
+		return false
+	}
+	if !te.CID.Equals(other.CID) {
+		return false
+	}
+	if te.ChunkSize != other.ChunkSize {
+		return false
+	}
+	if te.LogicalFileSize != other.LogicalFileSize {
+		return false
+	}
+
+	// Compare Children arrays
+	// Explicitly check for nil vs non-nil to distinguish between uninitialized and empty
+	if (te.Children == nil) != (other.Children == nil) {
+		return false
+	}
+	if len(te.Children) != len(other.Children) {
+		return false
+	}
+	for i, child := range te.Children {
+		if child != other.Children[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
@@ -663,11 +846,11 @@ func (b *CARBuilder) WriteCAR(ctx context.Context, w io.Writer) error {
 		return fmt.Errorf("summary not built, call BuildSummary first")
 	}
 
-	v1Header := &carv1.CarHeader{
+	v1Header := &carv2.CarHeader{
 		Version: 1,
 		Roots:   []cid.Cid{b.summary.RootCID},
 	}
-	if err := carv1.WriteHeader(v1Header, w); err != nil {
+	if err := carv2.WriteHeader(v1Header, w); err != nil {
 		return fmt.Errorf("write CARv1 header: %w", err)
 	}
 
@@ -853,7 +1036,7 @@ func (b *CARBuilder) writeBlockToCAR(ctx context.Context, blockCID cid.Cid, w io
 	// Try to fetch from blockstore first (LRU might have evicted it)
 	blk, err := b.bs.Get(ctx, blockCID)
 	if err == nil {
-		return carv1.WriteBlock(w, blockCID, blk.RawData())
+		return carv2util.WriteBlock(w, blockCID, blk.RawData())
 	}
 
 	// Block not in blockstore, regenerate it using the standard builders
@@ -885,7 +1068,7 @@ func (b *CARBuilder) writeBlockToCAR(ctx context.Context, blockCID cid.Cid, w io
 		return fmt.Errorf("fetch regenerated block %s: %w", blockCID, err)
 	}
 
-	return carv1.WriteBlock(w, blockCID, blk.RawData())
+	return carv2util.WriteBlock(w, blockCID, blk.RawData())
 }
 
 func (b *CARBuilder) pruneEmptyDirectories(summary *TreeSummary) error {

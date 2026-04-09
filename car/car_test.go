@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.lumeweb.com/ipfs-content/blockstore"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/carv2"
 )
 
 // ============================
@@ -370,7 +370,7 @@ func TestWriteCARv1FromSummary(t *testing.T) {
 			err = builder.WriteCAR(ctx, &buf)
 			assert.NoError(t, err)
 
-			carReader, err := carv1.NewCarReader(bytes.NewReader(buf.Bytes()))
+			carReader, err := carv2.NewCarReader(bytes.NewReader(buf.Bytes()))
 			assert.NoError(t, err)
 			assert.Equal(t, uint64(1), carReader.Header.Version)
 
@@ -433,7 +433,7 @@ func TestStreamCAR(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotEqual(t, cid.Undef, rootCID)
 
-			carReader, err := carv1.NewCarReader(&buf)
+			carReader, err := carv2.NewCarReader(&buf)
 			assert.NoError(t, err)
 			assert.Equal(t, uint64(1), carReader.Header.Version)
 			assert.Len(t, carReader.Header.Roots, 1)
@@ -476,7 +476,7 @@ func TestWriteCAR(t *testing.T) {
 		err = builder.WriteCAR(ctx, &buf)
 		assert.NoError(t, err)
 
-		carReader, err := carv1.NewCarReader(&buf)
+		carReader, err := carv2.NewCarReader(&buf)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(1), carReader.Header.Version)
 		assert.Len(t, carReader.Header.Roots, 1)
@@ -536,7 +536,7 @@ func TestRoundTripCAR(t *testing.T) {
 			err = builder.WriteCAR(ctx, &buf)
 			require.NoError(t, err)
 
-			carReader, err := carv1.NewCarReader(&buf)
+			carReader, err := carv2.NewCarReader(&buf)
 			require.NoError(t, err)
 
 			assert.Equal(t, uint64(1), carReader.Header.Version)
@@ -571,7 +571,7 @@ func TestRoundTripCAR_StreamCAR(t *testing.T) {
 	rootCID, err := StreamCAR(ctx, filesystem, &buf, true)
 	require.NoError(t, err)
 
-	carReader, err := carv1.NewCarReader(&buf)
+	carReader, err := carv2.NewCarReader(&buf)
 	require.NoError(t, err)
 
 	assert.Equal(t, uint64(1), carReader.Header.Version)
@@ -597,7 +597,7 @@ func TestRoundTripCAR_WriteCAR(t *testing.T) {
 	err = builder.WriteCAR(ctx, &buf)
 	require.NoError(t, err)
 
-	carReader, err := carv1.NewCarReader(&buf)
+	carReader, err := carv2.NewCarReader(&buf)
 	require.NoError(t, err)
 
 	assert.Equal(t, uint64(1), carReader.Header.Version)
@@ -729,7 +729,7 @@ func TestWriteCAR_VerifiesBlockRegeneration(t *testing.T) {
 	require.NoError(t, err, "WriteCAR should succeed")
 
 	// Verify CAR is valid
-	carReader, err := carv1.NewCarReader(&carBuf)
+	carReader, err := carv2.NewCarReader(&carBuf)
 	require.NoError(t, err)
 
 	blockCount := 0
@@ -1369,7 +1369,7 @@ func TestBuildSummary_ExcludesDotPaths(t *testing.T) {
 	require.Greater(t, buf.Len(), 0)
 
 	// Verify CAR is valid
-	carReader, err := carv1.NewCarReader(bytes.NewReader(buf.Bytes()))
+	carReader, err := carv2.NewCarReader(bytes.NewReader(buf.Bytes()))
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1), carReader.Header.Version)
 	assert.Len(t, carReader.Header.Roots, 1)

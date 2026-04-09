@@ -8,9 +8,10 @@ import (
 	"github.com/ipfs/boxo/blockservice"
 	"github.com/ipfs/boxo/exchange/offline"
 	"github.com/ipfs/boxo/ipld/merkledag"
+	carv2 "github.com/ipld/go-car/v2"
 
 	"go.lumeweb.com/ipfs-content/blockstore"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
+	internalio "go.lumeweb.com/ipfs-content/internal/io"
 )
 
 // ReadCAR reads a CAR file and reconstructs the directory hierarchy tree structure.
@@ -198,14 +199,19 @@ func ReadCAR(ctx context.Context, r io.ReadSeeker, memoryLimit uint64) (*TreeSum
 		return nil, fmt.Errorf("seek to start for header: %w", err)
 	}
 
-	cr, err := carv1.NewCarReader(r)
+	// Use carv2.NewReader to support both CARv1 and CARv2
+	cr, err := carv2.NewReader(internalio.ToReaderAt(r))
 	if err != nil {
 		return nil, fmt.Errorf("read CAR header: %w", err)
 	}
-	if len(cr.Header.Roots) == 0 {
+	roots, err := cr.Roots()
+	if err != nil {
+		return nil, fmt.Errorf("get root CID: %w", err)
+	}
+	if len(roots) == 0 {
 		return nil, fmt.Errorf("CAR has no root blocks")
 	}
-	rootCID := cr.Header.Roots[0]
+	rootCID := roots[0]
 
 	// Create DAG service from blockstore
 	bsvc := blockservice.New(ibs, offline.Exchange(ibs))
