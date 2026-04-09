@@ -1,3 +1,9 @@
+## 0.1.14 (2026-04-09)
+
+### Features
+
+- add CID extraction and normalization utilities
+
 ## 0.1.13 (2026-04-09)
 
 ### Features
