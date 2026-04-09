@@ -46,6 +46,15 @@ echo -e "\n=== Generating CAR Fixtures ==="
 
 # Generate bbb.car from Big Buck Bunny video
 echo "=== Big Buck Bunny CAR ==="
+download_bbb_video "$TEMP_DIR"
+generate_car_from_file \
+  "$TEMP_DIR/bbb_sunflower_1080p_60fps_stereo_abl.mp4" \
+  "$OUTPUT_DIR/bbb.car" \
+  "Big Buck Bunny"
+echo ""
+
+# Generate docx.car from sia.docx
+echo "=== DOCX CAR ==="
 if [ -e "$SCRIPT_DIR/sia.docx" ]; then
   generate_car_from_file \
     "$SCRIPT_DIR/sia.docx" \
