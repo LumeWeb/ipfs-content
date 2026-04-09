@@ -6,13 +6,14 @@
 // navigate from this file's location to find the fixtures directory.
 //
 // Usage:
-//   fixturesDir, err := fixtures.FindFixturesDir()
-//   if err != nil {
-//       log.Fatal(err)
-//   }
 //
-//   // Or get a specific file
-//   libSh, err := fixtures.GetLibSh()
+//	fixturesDir, err := fixtures.FindFixturesDir()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Or get a specific file
+//	libSh, err := fixtures.GetLibSh()
 package fixtures
 
 import (
@@ -24,6 +25,9 @@ import (
 	// Side-effect import: ensures internal/testing/fixtures are vendored
 	// when this package is imported
 	_ "go.lumeweb.com/ipfs-content/internal/testing/fixtures"
+
+	// Additional side-effect import: ensures go-car/v2 dependencies are properly vendored
+	_ "github.com/ipld/go-car/v2/blockstore"
 )
 
 const (
@@ -45,7 +49,7 @@ func FindFixturesDir() (string, error) {
 
 	// Navigate from this file to the fixtures directory
 	fixturesDir := filepath.Join(filepath.Dir(filename), FixturesRelPath)
-	
+
 	// Resolve to absolute path
 	absPath, err := filepath.Abs(fixturesDir)
 	if err != nil {
