@@ -6,21 +6,16 @@ import (
 
 	"github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	testingutil "go.lumeweb.com/ipfs-content/internal/testing"
 )
 
-func generateTestCID(t *testing.T, data string) cid.Cid {
-	t.Helper()
-	hash, err := multihash.Sum([]byte(data), multihash.SHA2_256, -1)
-	require.NoError(t, err)
-	return cid.NewCidV1(cid.Raw, hash)
-}
-
+// newTestBlock creates a test block with a raw CID from string data.
 func newTestBlock(t *testing.T, data string) blocks.Block {
 	t.Helper()
-	c := generateTestCID(t, data)
+	c := testingutil.GenerateRawBlockCIDFromString(t, data)
 	block, err := blocks.NewBlockWithCid([]byte(data), c)
 	require.NoError(t, err)
 	return block
@@ -136,7 +131,7 @@ func TestLRUBlockstore_Get_NotFound(t *testing.T) {
 	store := NewLRUBlockstore(1000)
 	ctx := context.Background()
 
-	c := generateTestCID(t, "nonexistent")
+	c := testingutil.GenerateRawBlockCIDFromString(t, "nonexistent")
 	_, err := store.Get(ctx, c)
 
 	assert.Error(t, err)
@@ -163,7 +158,7 @@ func TestLRUBlockstore_GetSize_NotFound(t *testing.T) {
 	store := NewLRUBlockstore(1000)
 	ctx := context.Background()
 
-	c := generateTestCID(t, "nonexistent")
+	c := testingutil.GenerateRawBlockCIDFromString(t, "nonexistent")
 	size, err := store.GetSize(ctx, c)
 
 	assert.Error(t, err)
@@ -185,7 +180,7 @@ func TestLRUBlockstore_Has(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	notExists, err := store.Has(ctx, generateTestCID(t, "nonexistent"))
+	notExists, err := store.Has(ctx, testingutil.GenerateRawBlockCIDFromString(t, "nonexistent"))
 	require.NoError(t, err)
 	assert.False(t, notExists)
 }
@@ -270,7 +265,7 @@ func TestLRUBlockstore_DeleteBlock_NotExisting(t *testing.T) {
 	store := NewLRUBlockstore(1000)
 	ctx := context.Background()
 
-	c := generateTestCID(t, "nonexistent")
+	c := testingutil.GenerateRawBlockCIDFromString(t, "nonexistent")
 	err := store.DeleteBlock(ctx, c)
 
 	// Should not error - it's a no-op

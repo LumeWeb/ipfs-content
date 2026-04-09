@@ -17,7 +17,7 @@ import (
 
 	"go.lumeweb.com/ipfs-content/blockstore"
 	"go.lumeweb.com/ipfs-content/encoding"
-	"go.lumeweb.com/ipfs-content/internal/carv1"
+	"go.lumeweb.com/ipfs-content/internal/carv2"
 	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
@@ -118,11 +118,11 @@ func StreamCARWithSize(ctx context.Context, filesystem fs.FS, w io.Writer, wrapI
 // The length is a varint encoding of (CID length + data length)
 func CalculateCARSize(summary *TreeSummary) (int64, error) {
 	// Calculate header size using the same method as WriteHeader
-	v1Header := &carv1.CarHeader{
+	v1Header := &carv2.CarHeader{
 		Version: 1,
 		Roots:   []cid.Cid{encoding.NormalizeCid(summary.RootCID)},
 	}
-	headerSize, err := carv1.HeaderSize(v1Header)
+	headerSize, err := carv2.HeaderSize(v1Header)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate CAR header size: %w", err)
 	}

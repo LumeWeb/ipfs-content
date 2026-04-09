@@ -16,6 +16,8 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	testingutil "go.lumeweb.com/ipfs-content/internal/testing"
 )
 
 // setupNodeGeneratorTest creates in-memory IPFS components for testing
@@ -88,15 +90,15 @@ func TestIPFSUnixFSNodeGenerator_CreateDirectoryWithLinks(t *testing.T) {
 		{
 			name: "single child",
 			children: []DirectoryChild{
-				{Name: "file1.txt", CID: generateTestCID(t)},
+				{Name: "file1.txt", CID: testingutil.GenerateCIDFromString(t, "test", testingutil.DagCBORCIDOptions())},
 			},
 			expectError: false,
 		},
 		{
 			name: "multiple children",
 			children: []DirectoryChild{
-				{Name: "file1.txt", CID: generateTestCID(t)},
-				{Name: "file2.txt", CID: generateTestCID(t)},
+				{Name: "file1.txt", CID: testingutil.GenerateCIDFromString(t, "test", testingutil.DagCBORCIDOptions())},
+				{Name: "file2.txt", CID: testingutil.GenerateCIDFromString(t, "test", testingutil.DagCBORCIDOptions())},
 			},
 			expectError: false,
 		},
@@ -130,7 +132,7 @@ func TestIPFSUnixFSNodeGenerator_CreateDirectoryWithLinks_ContextCancellation(t 
 	cancel() // Cancel before calling
 
 	children := []DirectoryChild{
-		{Name: "file1.txt", CID: generateTestCID(t)},
+		{Name: "file1.txt", CID: testingutil.GenerateCIDFromString(t, "test", testingutil.DagCBORCIDOptions())},
 	}
 
 	_, err := generator.CreateDirectoryWithLinks(ctx, children)
@@ -517,17 +519,6 @@ func TestIPFSUnixFSNodeGenerator_PerformanceEdgeCases(t *testing.T) {
 
 // Helper functions
 
-func generateTestCID(t *testing.T) cid.Cid {
-	t.Helper()
-	hash, err := cid.Prefix{
-		Version:  1,
-		Codec:    cid.DagCBOR,
-		MhType:   0x12, // sha2-256
-		MhLength: 32,
-	}.Sum([]byte("test"))
-	require.NoError(t, err)
-	return hash
-}
 
 // Helper types
 

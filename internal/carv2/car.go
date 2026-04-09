@@ -1,20 +1,26 @@
-package carv1
+// Package carv2 provides low-level CAR file format utilities for reading and writing CARv1 files.
+//
+// This package adapts CAR format handling from github.com/ipld/go-car/v2
+// to work with the internal/io package in this project, maintaining compatibility with
+// the IPLD CARv1 specification.
+package carv2
 
 import (
 	"context"
 	"fmt"
 	"io"
 
-	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
-	"github.com/multiformats/go-varint"
+	carv2util "go.lumeweb.com/ipfs-content/internal/carv2/util"
 
+	blocks "github.com/ipfs/go-block-format"
+	cid "github.com/ipfs/go-cid"
+	cbor "github.com/ipfs/go-ipld-cbor"
 	internalio "go.lumeweb.com/ipfs-content/internal/io"
 )
 
 const DefaultMaxAllowedHeaderSize uint64 = 32 << 20 // 32MiB
 const DefaultMaxAllowedSectionSize uint64 = 8 << 20 // 8MiB
+
 func init() {
 	cbor.RegisterCborType(CarHeader{})
 }
@@ -56,10 +62,10 @@ func ReadHeaderAt(at io.ReaderAt, maxReadBytes uint64) (*CarHeader, error) {
 // It reads the length-prefixed CBOR-encoded header and decodes it.
 // The maxReadBytes parameter limits the maximum number of bytes to read.
 func ReadHeader(r io.Reader, maxReadBytes uint64) (*CarHeader, error) {
-	hb, err := LdRead(r, false, maxReadBytes)
+	hb, err := carv2util.LdRead(r, false, maxReadBytes)
 	if err != nil {
-		if err == ErrSectionTooLarge {
-			err = ErrHeaderTooLarge
+		if err == carv2util.ErrSectionTooLarge {
+			err = carv2util.ErrHeaderTooLarge
 		}
 		return nil, err
 	}
@@ -80,7 +86,7 @@ func WriteHeader(h *CarHeader, w io.Writer) error {
 		return err
 	}
 
-	return LdWrite(w, hb)
+	return carv2util.LdWrite(w, hb)
 }
 
 // HeaderSize calculates the size in bytes of a CARv1 header when encoded.
@@ -91,28 +97,7 @@ func HeaderSize(h *CarHeader) (uint64, error) {
 		return 0, err
 	}
 
-	return LdSize(hb), nil
-}
-
-// WriteBlock writes a single block to CARv1 format.
-func WriteBlock(w io.Writer, c cid.Cid, data []byte) error {
-	length := uint64(len(c.Bytes()) + len(data))
-	lengthBytes := make([]byte, 8)
-	n := varint.PutUvarint(lengthBytes, length)
-
-	if _, err := w.Write(lengthBytes[:n]); err != nil {
-		return fmt.Errorf("write length: %w", err)
-	}
-
-	if _, err := w.Write(c.Bytes()); err != nil {
-		return fmt.Errorf("write CID: %w", err)
-	}
-
-	if _, err := w.Write(data); err != nil {
-		return fmt.Errorf("write block data: %w", err)
-	}
-
-	return nil
+	return carv2util.LdSize(hb), nil
 }
 
 // CarReader provides functionality for reading CARv1 files.
@@ -124,14 +109,17 @@ type CarReader struct {
 	maxAllowedSectionSize uint64
 }
 
+// NewCarReaderWithZeroLengthSectionAsEOF creates a new CarReader that treats zero-length sections as EOF.
 func NewCarReaderWithZeroLengthSectionAsEOF(r io.Reader) (*CarReader, error) {
 	return NewCarReaderWithoutDefaults(r, true, DefaultMaxAllowedHeaderSize, DefaultMaxAllowedSectionSize)
 }
 
+// NewCarReader creates a new CarReader from an io.Reader.
 func NewCarReader(r io.Reader) (*CarReader, error) {
 	return NewCarReaderWithoutDefaults(r, false, DefaultMaxAllowedHeaderSize, DefaultMaxAllowedSectionSize)
 }
 
+// NewCarReaderWithoutDefaults creates a new CarReader with custom parameters.
 func NewCarReaderWithoutDefaults(r io.Reader, zeroLenAsEOF bool, maxAllowedHeaderSize uint64, maxAllowedSectionSize uint64) (*CarReader, error) {
 	ch, err := ReadHeader(r, maxAllowedHeaderSize)
 	if err != nil {
@@ -154,8 +142,9 @@ func NewCarReaderWithoutDefaults(r io.Reader, zeroLenAsEOF bool, maxAllowedHeade
 	}, nil
 }
 
+// Next reads the next block from the CAR file.
 func (cr *CarReader) Next() (blocks.Block, error) {
-	c, data, err := ReadNode(cr.r, cr.zeroLenAsEOF, cr.maxAllowedSectionSize)
+	c, data, err := carv2util.ReadNode(cr.r, cr.zeroLenAsEOF, cr.maxAllowedSectionSize)
 	if err != nil {
 		return nil, err
 	}
@@ -257,15 +246,10 @@ func (h CarHeader) Matches(other CarHeader) bool {
 		return h.Roots[0].Equals(other.Roots[0])
 	}
 
-	// Check other contains all roots with correct multiplicity using a frequency map (O(N) instead of O(N^2))
-	rootCounts := make(map[string]int)
+	// Check other contains all roots.
+	// TODO: should this be optimised for cases where the number of roots are large since it has O(N^2) complexity?
 	for _, r := range h.Roots {
-		rootCounts[r.String()]++
-	}
-	for _, or := range other.Roots {
-		key := or.String()
-		rootCounts[key]--
-		if rootCounts[key] < 0 {
+		if !other.containsRoot(r) {
 			return false
 		}
 	}
