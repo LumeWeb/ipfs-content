@@ -5,6 +5,9 @@
 # Generates raw block fixtures for node tests
 # ============================================
 
+# shellcheck disable=SC1091
+# shellcheck source=lib.sh
+
 # Handle debug flags properly
 while [[ "$1" == -* ]]; do
   case "$1" in
@@ -27,6 +30,8 @@ echo "Generating test data in: $TEMP_DIR"
 mkdir -p -- "${OUTPUT_DIR}"
 
 # Initialize cleanup flag
+# shellcheck disable=SC2034
+# CLEANUP_DONE is used in signal handling via cleanup() function
 CLEANUP_DONE=""
 trap cleanup EXIT
 

@@ -35,8 +35,7 @@ get_block_size() {
   fi
   
   local STATS
-  STATS=$(ipfs block stat -- "$CID" 2>/dev/null)
-  if [ $? -ne 0 ]; then
+  if ! STATS=$(ipfs block stat -- "$CID" 2>/dev/null); then
     echo "Error: Failed to get block stats for $CID" >&2
     return 1
   fi
@@ -100,8 +99,7 @@ add_to_ipfs() {
   if [[ "$FILE" == *data_* ]]; then
     OUTPUT=$(calculate_raw_cid "$FILE")
   else
-    OUTPUT=$(ipfs add -Q --pin=false "$FILE" 2>&1)
-    if [ $? -ne 0 ]; then
+    if ! OUTPUT=$(ipfs add -Q --pin=false "$FILE" 2>&1); then
       echo "Error: Failed to add file $FILE to IPFS: $OUTPUT" >&2
       return 1
     fi
@@ -260,7 +258,7 @@ generate_mixed_content() {
 create_info_file() {
   local output_file="$1"
   shift
-  
+
   if [[ -f "$output_file" && "$output_file" == *protobuf_* ]]; then
     return 0
   fi
@@ -269,6 +267,8 @@ create_info_file() {
   local jq_query='{}'
 
   while [ $# -gt 0 ]; do
+    # shellcheck disable=SC2016
+    # JQ query strings use single quotes intentionally - no variable expansion needed
     case "$1" in
       --file)
         jq_query+=' | .file = $file'
@@ -360,7 +360,8 @@ download_bbb_video() {
   mkdir -p "$output_dir"
 
   # Create temporary directory for download
-  local work_dir=$(mktemp -d)
+  local work_dir
+  work_dir=$(mktemp -d)
 
   # Download the zip file
   if ! wget -q --timeout=300 --tries=3 -O "${work_dir}/bbb.zip" "$bbb_url"; then
@@ -427,8 +428,7 @@ generate_car_from_file() {
 
   # Export as CAR
   mkdir -p -- "$(dirname "$output_file")"
-  ipfs dag export "$CID" > "$output_file"
-  if [ $? -ne 0 ]; then
+  if ! ipfs dag export "$CID" > "$output_file"; then
     echo "Error: Failed to export CAR for $name" >&2
     return 1
   fi
@@ -471,8 +471,7 @@ generate_directory_car() {
 
   # Export as CAR
   mkdir -p -- "$(dirname "$output_file")"
-  ipfs dag export "$CID" > "$output_file"
-  if [ $? -ne 0 ]; then
+  if ! ipfs dag export "$CID" > "$output_file"; then
     echo "Error: Failed to export CAR for $name" >&2
     return 1
   fi

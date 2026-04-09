@@ -4,6 +4,9 @@
 # Test Fixtures Generation Script - CAR Files
 # ============================================
 
+# shellcheck disable=SC1091
+# shellcheck source=lib.sh
+
 # Handle debug flags properly
 while [[ "$1" == -* ]]; do
   case "$1" in
@@ -26,6 +29,8 @@ echo "Generating CAR fixtures in: $TEMP_DIR"
 mkdir -p -- "${OUTPUT_DIR}"
 
 # Initialize cleanup flag
+# shellcheck disable=SC2034
+# CLEANUP_DONE is used in signal handling via cleanup() function
 CLEANUP_DONE=""
 trap cleanup EXIT
 
@@ -58,11 +63,11 @@ mkdir -p "$FILETREE_DIR"
 
 # Create deterministic nested structure
 for i in $(seq 1 20); do
-  DIR="$FILETREE_DIR/dir_$(printf "%02d" $i)"
+  DIR="$FILETREE_DIR/dir_$(printf "%02d" "$i")"
   mkdir -p "$DIR"
-  DETERMINISTIC=1 create_file "$DIR/file_$(printf "%02d" $i).txt" $((1024 * (1 + (i % 10)))) txt
+  DETERMINISTIC=1 create_file "$DIR/file_$(printf "%02d" "$i").txt" $((1024 * (1 + (i % 10)))) txt
   for j in $(seq 1 5); do
-    DETERMINISTIC=1 create_file "$DIR/subfile_$(printf "%02d" $j).txt" $((512 * j)) txt
+    DETERMINISTIC=1 create_file "$DIR/subfile_$(printf "%02d" "$j").txt" $((512 * j)) txt
   done
 done
 
@@ -76,7 +81,7 @@ mkdir -p "$HAMT_DIR"
 
 # Create files for HAMT tree
 for i in $(seq 1 1200); do
-  DETERMINISTIC=1 create_file "$HAMT_DIR/file_$(printf "%04d" $i).txt" 512 txt
+  DETERMINISTIC=1 create_file "$HAMT_DIR/file_$(printf "%04d" "$i").txt" 512 txt
 done
 
 generate_directory_car "$HAMT_DIR" "$OUTPUT_DIR/hamttree.car" "HAMT Tree" 1
