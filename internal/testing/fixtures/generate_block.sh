@@ -17,7 +17,7 @@ while [[ "$1" == -* ]]; do
 done
 
 # Source library functions
-SCRIPT_DIR=$(dirname "$0")
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh" || exit 1
 
 # --- Setup ---

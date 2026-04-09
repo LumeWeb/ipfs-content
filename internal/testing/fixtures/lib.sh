@@ -115,8 +115,7 @@ add_directory_to_ipfs() {
     return 1
   fi
   local OUTPUT
-  OUTPUT=$(ipfs add -Q -r --pin=false "$DIR" 2>/dev/null)
-  if ! ipfs add -Q -r --pin=false "$DIR" >/dev/null 2>&1; then
+  if ! OUTPUT=$(ipfs add -Q -r --pin=false "$DIR" 2>/dev/null); then
     echo "Error: Failed to add directory $DIR to IPFS" >&2
     return 1
   fi

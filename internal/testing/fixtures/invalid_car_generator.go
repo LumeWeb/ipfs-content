@@ -75,9 +75,8 @@ func main() {
 		return
 	}
 	defer func(f *os.File) {
-		err = f.Close()
-		if err != nil {
-			log.Fatal(err)
+		if err := f.Close(); err != nil {
+			log.Printf("Warning: failed to close file: %v", err)
 		}
 	}(f)
 
