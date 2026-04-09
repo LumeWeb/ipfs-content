@@ -66,7 +66,7 @@ func TestNewSevenZipArchiveExtractor_NotSupported(t *testing.T) {
 		require.Nil(t, extractor)
 		t.Logf("Expected error (format not supported): %v", err)
 	} else {
-		t.Logf("Extractor created successfully, format supported: %v", extractor)
+		t.Logf("Extractor created successfully, format supported")
 	}
 }
 
