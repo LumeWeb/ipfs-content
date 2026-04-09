@@ -1,5 +1,3 @@
-//go:build ignore
-
 package main
 
 import (
@@ -16,7 +14,8 @@ import (
 func main() {
 	// Get source file location using runtime
 	_, filename, _, _ := runtime.Caller(0)
-	cwd := filepath.Dir(filename)
+	cmdDir := filepath.Dir(filename)
+	cwd := filepath.Dir(cmdDir) // Go up one level to fixtures directory
 
 	// Define the output CAR file path in the cars/ subdirectory
 	carsDir := filepath.Join(cwd, "cars")
