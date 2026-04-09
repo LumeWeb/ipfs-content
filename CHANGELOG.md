@@ -1,3 +1,13 @@
+## 0.1.13 (2026-04-09)
+
+### Features
+
+- add CARv2 format support and comprehensive test coverage
+
+### Fixes
+
+- handle duplicate CIDs correctly in equalBlocks method
+
 ## 0.1.12 (2026-04-09)
 
 ### Features
