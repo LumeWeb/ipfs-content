@@ -168,8 +168,11 @@ func (gen *IPFSUnixFSNodeGenerator) CreateDAGFromReader(ctx context.Context, rea
 		maxlinks = helpers.DefaultLinksPerBlock
 	}
 
-	if chunkSize == 0 {
-		chunkSize = 1024 * 1024 // 1MB default chunk size
+	var chnk chunker.Splitter
+	if chunkSize > 0 {
+		chnk = chunker.NewSizeSplitter(reader, chunkSize)
+	} else {
+		chnk = chunker.DefaultSplitter(reader)
 	}
 
 	codec := uint64(cid.DagProtobuf)
@@ -185,8 +188,7 @@ func (gen *IPFSUnixFSNodeGenerator) CreateDAGFromReader(ctx context.Context, rea
 		CidBuilder: builder,
 	}
 
-	spl := chunker.NewSizeSplitter(reader, chunkSize)
-	db, err := dbp.New(spl)
+	db, err := dbp.New(chnk)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dag builder: %w", err)
 	}
