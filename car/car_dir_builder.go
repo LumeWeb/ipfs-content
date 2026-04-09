@@ -313,8 +313,9 @@ func (ts *TreeSummary) Equal(other *TreeSummary) bool {
 // Time complexity: O(n) where n is the number of blocks
 // Space complexity: O(k) where k is the number of unique blocks (after deduplication)
 //
-// Optimization: Single map approach builds the CID→size mapping once, then verifies
-// the other side by lookup and deletion. This is more efficient than building two maps.
+// Optimization: Single map builds CID→(size,count) mapping once, then verifies
+// the other side by lookup and count decrement. Tracking both size and count handles
+// duplicate CIDs correctly (multiple files can share the same block content).
 func (ts *TreeSummary) equalBlocks(other *TreeSummary) bool {
 	// Early rejection on length mismatches
 	if len(ts.BlockOrder) != len(other.BlockOrder) {
@@ -330,24 +331,30 @@ func (ts *TreeSummary) equalBlocks(other *TreeSummary) bool {
 		return false
 	}
 
-	// Build map from ts: CID → size
-	// Use O(k) space where k = unique blocks after deduplication
-	blockMap := make(map[cid.Cid]uint64, len(ts.BlockOrder))
+	// Build map from ts: CID → count and size
+	blockMap := make(map[cid.Cid]blockInfo, len(ts.BlockOrder))
 	for i, block := range ts.BlockOrder {
-		blockMap[block] = ts.BlockSizes[i]
+		info := blockMap[block]
+		info.size = ts.BlockSizes[i]
+		info.count++
+		blockMap[block] = info
 	}
 
 	// Verify blocks in other match
 	for i, block := range other.BlockOrder {
-		size, exists := blockMap[block]
-		if !exists || size != other.BlockSizes[i] {
+		info, exists := blockMap[block]
+		if !exists || info.size != other.BlockSizes[i] {
 			return false
 		}
-		// Delete to track which entries we've seen
-		delete(blockMap, block)
+		info.count--
+		if info.count == 0 {
+			delete(blockMap, block)
+		} else {
+			blockMap[block] = info
+		}
 	}
 
-	// All entries should have been matched and deleted
+	// All entries should have been matched
 	return len(blockMap) == 0
 }
 
@@ -567,6 +574,13 @@ func (te *TreeEntry) Equal(other *TreeEntry) bool {
 	}
 
 	return true
+}
+
+// blockInfo tracks block size and occurrence count for CID equality comparison.
+// Used by TreeSummary.equalBlocks to handle duplicate CIDs correctly.
+type blockInfo struct {
+	size  uint64
+	count int
 }
 
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.

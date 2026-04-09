@@ -175,6 +175,69 @@ func TestTreeSummary_Equal(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "duplicate CIDs with same size (should be equal)",
+			left: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1), // Duplicate CID
+					testingutil.GenerateDistinctCID(t, 3),
+				},
+				BlockSizes: []uint64{100, 200, 100, 300}, // Same size for duplicate CID
+			},
+			right: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 3),
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1), // Same duplicate CID
+				},
+				BlockSizes: []uint64{300, 100, 200, 100}, // Matching sizes
+			},
+			expected: true,
+		},
+		{
+			name: "duplicate CIDs with different sizes (should not be equal)",
+			left: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1), // Duplicate CID
+				},
+				BlockSizes: []uint64{100, 200, 150}, // Different size for duplicate CID
+			},
+			right: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 1), // Same duplicate CID
+				},
+				BlockSizes: []uint64{200, 100, 100}, // Different size for duplicate CID
+			},
+			expected: false,
+		},
+		{
+			name: "duplicate CIDs with different count (should not be equal)",
+			left: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1), // CID 1 appears twice
+				},
+				BlockSizes: []uint64{100, 200, 100},
+			},
+			right: &TreeSummary{
+				BlockOrder: []cid.Cid{
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 2),
+					testingutil.GenerateDistinctCID(t, 1),
+					testingutil.GenerateDistinctCID(t, 1), // CID 1 appears three times
+				},
+				BlockSizes: []uint64{100, 200, 100, 100},
+			},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
