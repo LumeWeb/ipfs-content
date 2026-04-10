@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	// Side-effect import: ensures internal/testing/fixtures are vendored
 	// when this package is imported
@@ -116,4 +117,55 @@ func GetGenerateCarScript() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "generate_car.sh"), nil
+}
+
+// ResolveOutputDir resolves the appropriate output directory for fixture generators.
+//
+// This function is used by standalone generator binaries to determine where to write
+// fixture files. It handles path resolution by checking if the current directory is
+// already a fixtures directory (to avoid duplication) or if we need to navigate to
+// the fixtures directory from the current working directory.
+//
+// The function first checks if the current working directory ends with known fixtures
+// directory names ("internal/testing/fixtures" or "testing/fixtures"). If so, it uses
+// the current directory. Otherwise, it constructs the path to internal/testing/fixtures
+// from the current working directory.
+//
+// This approach ensures generators work correctly regardless of how they're invoked:
+// - From the fixtures directory itself
+// - From the project root
+// - From anywhere in the project tree
+// - As installed binaries
+//
+// Parameters:
+//   subdir - Optional subdirectory within the fixtures directory (e.g., "data", "cars").
+//            If empty, returns the fixtures directory itself.
+//
+// Returns:
+//   string - The resolved output directory path
+//   error  - An error if the current working directory cannot be determined
+func ResolveOutputDir(subdir string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Check if we're already in a fixtures directory to avoid path duplication
+	cleanCwd := filepath.Clean(cwd)
+	isFixturesDir := strings.HasSuffix(cleanCwd, "internal/testing/fixtures") ||
+		strings.HasSuffix(cleanCwd, "testing/fixtures")
+
+	var fixturesDir string
+	if isFixturesDir {
+		fixturesDir = cleanCwd
+	} else {
+		// Standard location from project root
+		fixturesDir = filepath.Join(cwd, "internal", "testing", "fixtures")
+	}
+
+	// Append subdirectory if specified
+	if subdir != "" {
+		return filepath.Join(fixturesDir, subdir), nil
+	}
+	return fixturesDir, nil
 }

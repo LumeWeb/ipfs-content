@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	fixtures "go.lumeweb.com/ipfs-content/testing/fixtures"
+
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
@@ -83,13 +85,12 @@ func run() error {
 	if len(flagArgs) > 0 {
 		outputDir = flagArgs[0]
 	} else {
-		// Use current working directory instead of runtime.Caller for reliable path resolution
-		cwd, err := os.Getwd()
+		// Use shared fixtures package for reliable path resolution
+		var err error
+		outputDir, err = fixtures.ResolveOutputDir("data")
 		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
+			return fmt.Errorf("failed to resolve output directory: %w", err)
 		}
-		// Default to fixtures/data directory location
-		outputDir = filepath.Join(cwd, "internal", "testing", "fixtures", "data")
 	}
 	// Use 1/0 instead of true/false for consistent naming
 	missingFlag := 0

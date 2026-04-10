@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	fixtures "go.lumeweb.com/ipfs-content/testing/fixtures"
+
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
@@ -16,15 +18,13 @@ func main() {
 	if len(os.Args) > 1 {
 		carsDir = filepath.Join(os.Args[1], "cars")
 	} else {
-		// Use current working directory for reliable path resolution
-		cwd, err := os.Getwd()
+		// Use shared fixtures package for reliable path resolution
+		var err error
+		carsDir, err = fixtures.ResolveOutputDir("cars")
 		if err != nil {
-			fmt.Println("Error getting working directory:", err)
+			fmt.Println("Error resolving output directory:", err)
 			return
 		}
-		// Default to internal/testing/fixtures/cars
-		fixturesDir := filepath.Join(cwd, "internal", "testing", "fixtures")
-		carsDir = filepath.Join(fixturesDir, "cars")
 	}
 	
 	if err := os.MkdirAll(carsDir, 0755); err != nil {
