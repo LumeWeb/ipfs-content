@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"time"
+
+	internalio "go.lumeweb.com/ipfs-content/internal/io"
 )
 
 // SingleFileFS implements fs.FS to wrap a single file from an existing file handle.
@@ -37,6 +39,19 @@ func NewSingleFileFS(file fs.File, filename string) *SingleFileFS {
 		file:     file,
 		filename: filename,
 	}
+}
+
+// NewSingleFileFSFromReader creates a filesystem from any io.ReadSeeker.
+// If the reader doesn't implement Close, a no-op Close is added.
+func NewSingleFileFSFromReader(reader io.ReadSeeker, filename string) *SingleFileFS {
+	// Check if it's already an fs.File
+	if file, ok := reader.(fs.File); ok {
+		return NewSingleFileFS(file, filename)
+	}
+	
+	// Wrap with internal ReadSeekCloser that provides no-op Close and fs.File interface
+	file := internalio.NewReadSeekCloserWithInfo(reader, filename, 0, 0600, time.Now())
+	return NewSingleFileFS(file, filename)
 }
 
 // Open implements fs.FS.Open.

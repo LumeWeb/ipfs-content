@@ -3,7 +3,9 @@ package io
 import (
 	"bytes"
 	"io"
+	"io/fs"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -363,4 +365,80 @@ func (t *trackedCloser) Read(p []byte) (int, error) {
 func (t *trackedCloser) Close() error {
 	t.closed = true
 	return nil
+}
+
+// TestReadSeekCloserStat tests Stat() method on ReadSeekCloser
+func TestReadSeekCloserStat(t *testing.T) {
+	t.Run("returns default metadata when created with NewReadSeekCloser", func(t *testing.T) {
+		data := []byte("test data")
+		buf := bytes.NewReader(data)
+		rsc := NewReadSeekCloser(buf)
+
+		info, err := rsc.Stat()
+		require.NoError(t, err)
+
+		assert.Empty(t, info.Name(), "Name should be empty string")
+		assert.Equal(t, int64(0), info.Size(), "Size should be 0 (unknown)")
+		assert.Equal(t, fs.FileMode(0600), info.Mode(), "Mode should be 0600 default")
+		assert.False(t, info.IsDir(), "Should not be a directory")
+	})
+
+	t.Run("returns provided metadata when created with NewReadSeekCloserWithInfo", func(t *testing.T) {
+		data := []byte("test data")
+		buf := bytes.NewReader(data)
+		modTime := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+
+		rsc := NewReadSeekCloserWithInfo(buf, "test.txt", 1024, 0644, modTime)
+
+		info, err := rsc.Stat()
+		require.NoError(t, err)
+
+		assert.Equal(t, "test.txt", info.Name(), "Name should match provided value")
+		assert.Equal(t, int64(1024), info.Size(), "Size should match provided value")
+		assert.Equal(t, fs.FileMode(0644), info.Mode(), "Mode should match provided value")
+		assert.Equal(t, modTime, info.ModTime(), "ModTime should match provided value")
+		assert.False(t, info.IsDir(), "Should not be a directory")
+	})
+
+	t.Run("Sys returns nil", func(t *testing.T) {
+		rsc := NewReadSeekCloser(bytes.NewReader([]byte("test")))
+
+		info, err := rsc.Stat()
+		require.NoError(t, err)
+
+		assert.Nil(t, info.Sys(), "Sys should return nil")
+	})
+
+	t.Run("multiple Stat calls return same data", func(t *testing.T) {
+		rsc := NewReadSeekCloserWithInfo(
+			bytes.NewReader([]byte("test")),
+			"file.txt", 500, 0644, time.Now(),
+		)
+
+		info1, err1 := rsc.Stat()
+		require.NoError(t, err1)
+
+		info2, err2 := rsc.Stat()
+		require.NoError(t, err2)
+
+		assert.Equal(t, info1.Name(), info2.Name())
+		assert.Equal(t, info1.Size(), info2.Size())
+		assert.Equal(t, info1.Mode(), info2.Mode())
+	})
+}
+
+// TestReadSeekCloserImplementsFsFile verifies ReadSeekCloser implements fs.File
+func TestReadSeekCloserImplementsFsFile(t *testing.T) {
+	t.Run("implements fs.File interface", func(t *testing.T) {
+		rsc := NewReadSeekCloser(bytes.NewReader([]byte("test")))
+
+		var _ fs.File = rsc // Compile-time check
+	})
+
+	t.Run("Stat can be called on ReadSeekCloser", func(t *testing.T) {
+		rsc := NewReadSeekCloser(bytes.NewReader([]byte("test")))
+
+		_, err := rsc.Stat()
+		require.NoError(t, err, "Stat should not return an error")
+	})
 }

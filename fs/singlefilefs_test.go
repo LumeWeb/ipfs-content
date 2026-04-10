@@ -1,9 +1,11 @@
 package fs
 
 import (
+	"bytes"
 	"io"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,6 +52,194 @@ func TestSingleFileFSBasic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(content), n)
 	assert.Equal(t, content, string(buf))
+}
+
+func TestSingleFileFSFromReaderWithBytesReader(t *testing.T) {
+	content := []byte("Hello from bytes.Reader!")
+	reader := bytes.NewReader(content)
+	
+	// Create SingleFileFS from reader
+	singleFS := NewSingleFileFSFromReader(reader, "bytes.txt")
+	
+	// Open and read
+	openedFile, err := singleFS.Open("bytes.txt")
+	require.NoError(t, err)
+	defer openedFile.Close()
+	
+	buf := make([]byte, len(content))
+	n, err := openedFile.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(content), n)
+	assert.Equal(t, string(content), string(buf))
+}
+
+func TestSingleFileFSFromReaderWithStringsReader(t *testing.T) {
+	content := "Hello from strings.Reader!"
+	reader := strings.NewReader(content)
+	
+	// Create SingleFileFS from reader
+	singleFS := NewSingleFileFSFromReader(reader, "strings.txt")
+	
+	// Open and read
+	openedFile, err := singleFS.Open("strings.txt")
+	require.NoError(t, err)
+	defer openedFile.Close()
+	
+	buf := make([]byte, len(content))
+	n, err := openedFile.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(content), n)
+	assert.Equal(t, content, string(buf))
+}
+
+func TestSingleFileFSFromReaderWithOsFile(t *testing.T) {
+	content := "Hello from os.File!"
+	tmpFile := createTestFile(t, content)
+	file, err := os.Open(tmpFile)
+	require.NoError(t, err)
+	defer file.Close()
+	
+	// Create SingleFileFS from file (which is already an io.ReadSeeker and fs.File)
+	singleFS := NewSingleFileFSFromReader(file, "osfile.txt")
+	
+	// Open and read
+	openedFile, err := singleFS.Open("osfile.txt")
+	require.NoError(t, err)
+	defer openedFile.Close()
+	
+	buf := make([]byte, len(content))
+	n, err := openedFile.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(content), n)
+	assert.Equal(t, content, string(buf))
+}
+
+func TestSingleFileFSFromReaderSeek(t *testing.T) {
+	content := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	reader := bytes.NewReader([]byte(content))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "seek.txt")
+	
+	// Open file
+	openedFile, err := singleFS.Open("seek.txt")
+	require.NoError(t, err)
+	defer openedFile.Close()
+	
+	// Check that file implements io.Seeker
+	seeker, ok := openedFile.(io.Seeker)
+	require.True(t, ok, "file should implement io.Seeker")
+	
+	// Seek to position 10
+	offset, err := seeker.Seek(10, io.SeekStart)
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), offset)
+	
+	// Read from position 10
+	buf := make([]byte, 5)
+	n, err := openedFile.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, "KLMNO", string(buf))
+}
+
+func TestSingleFileFSFromReaderReOpen(t *testing.T) {
+	content := "This is a test file for reopening"
+	reader := bytes.NewReader([]byte(content))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "reopen.txt")
+	
+	// First open and read
+	file1, err := singleFS.Open("reopen.txt")
+	require.NoError(t, err)
+	defer file1.Close()
+	
+	buf1 := make([]byte, 4)
+	n1, err := file1.Read(buf1)
+	require.NoError(t, err)
+	assert.Equal(t, 4, n1)
+	assert.Equal(t, "This", string(buf1))
+	
+	// Reopen and read from beginning
+	file2, err := singleFS.Open("reopen.txt")
+	require.NoError(t, err)
+	defer file2.Close()
+	
+	buf2 := make([]byte, 4)
+	n2, err := file2.Read(buf2)
+	require.NoError(t, err)
+	assert.Equal(t, 4, n2)
+	assert.Equal(t, "This", string(buf2))
+}
+
+func TestSingleFileFSFromReaderStat(t *testing.T) {
+	content := "test content"
+	reader := bytes.NewReader([]byte(content))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "stat.txt")
+	
+	// Stat the root
+	info, err := fs.Stat(singleFS, ".")
+	require.NoError(t, err, "fs.Stat should not fail on root")
+	
+	// The root should represent a single file, not a directory
+	assert.False(t, info.IsDir(), "Root of SingleFileFSFromReader should not be a directory")
+	assert.Equal(t, "stat.txt", info.Name())
+}
+
+func TestSingleFileFSFromReaderInvalidPath(t *testing.T) {
+	reader := bytes.NewReader([]byte("test"))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "test.txt")
+	
+	// Try to open a non-existent file
+	_, err := singleFS.Open("nonexistent.txt")
+	assert.Equal(t, fs.ErrNotExist, err)
+}
+
+func TestSingleFileFSFromReaderCloseIsNoOp(t *testing.T) {
+	content := "test content"
+	reader := bytes.NewReader([]byte(content))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "close.txt")
+	
+	// Open and close multiple times
+	file1, err := singleFS.Open("close.txt")
+	require.NoError(t, err)
+	
+	err = file1.Close()
+	require.NoError(t, err, "Close should be no-op and not error")
+	
+	// Can still open and read after close
+	file2, err := singleFS.Open("close.txt")
+	require.NoError(t, err)
+	defer file2.Close()
+	
+	buf := make([]byte, 4)
+	n, err := file2.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 4, n)
+	assert.Equal(t, "test", string(buf))
+}
+
+func TestSingleFileFSFromReaderCompatibilityWithUploadPattern(t *testing.T) {
+	// Test the pattern used by UploadFromFS in upload.go
+	content := "Content for upload pattern testing"
+	reader := bytes.NewReader([]byte(content))
+	
+	singleFS := NewSingleFileFSFromReader(reader, "upload.txt")
+	
+	// This is what UploadFromFS does in upload.go line 299-305
+	info, err := fs.Stat(singleFS, ".")
+	require.NoError(t, err, "cannot access filesystem")
+	
+	// Check IsDir behavior - single file should not be a directory
+	wrapInDir := false
+	if info.IsDir() {
+		wrapInDir = true
+	}
+	
+	// For a single file, wrapInDir should remain false
+	assert.False(t, wrapInDir, "Single file should not be wrapped in a directory")
 }
 
 func TestSingleFileFSRootIsFile(t *testing.T) {
