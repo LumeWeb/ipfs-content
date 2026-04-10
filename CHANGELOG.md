@@ -1,3 +1,17 @@
+## 0.1.15 (2026-04-10)
+
+### Features
+
+- enable flexible fixture path configuration for cmd generators
+- enable accurate size calculations and single file uploads
+- support creating filesystems from any io.ReadSeeker
+
+### Fixes
+
+- resolve Go import issue by moving generators to testing/fixtures/cmd
+- ensure test fixtures are generated correctly
+- address code review issues
+
 ## 0.1.14 (2026-04-09)
 
 ### Features
