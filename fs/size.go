@@ -7,6 +7,16 @@ import (
 	"go.lumeweb.com/ipfs-content/car"
 )
 
+// prepareCARSummary is a helper function that prepares a CAR summary from a filesystem.
+// This encapsulates the common logic shared by GetDAGSizeFromFS and GetLogicalFileSizeFromFS.
+func prepareCARSummary(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*car.TreeSummary, error) {
+	_, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
+	if err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
 // GetDAGSizeFromFS calculates the actual DAG block size from any fs.FS.
 // This returns the sum of all UnixFS block sizes including:
 // - File data blocks
@@ -18,7 +28,7 @@ import (
 // wrapInDir determines if the root should be wrapped in a directory (true) or
 // if a single file should be the root (false).
 func GetDAGSizeFromFS(ctx context.Context, filesystem fs.FS, wrapInDir bool) (uint64, error) {
-	_, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
+	summary, err := prepareCARSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return 0, err
 	}
@@ -29,7 +39,7 @@ func GetDAGSizeFromFS(ctx context.Context, filesystem fs.FS, wrapInDir bool) (ui
 // This is the sum of all file sizes before UnixFS chunking, useful for quota
 // validation showing the user's intended upload size.
 func GetLogicalFileSizeFromFS(ctx context.Context, filesystem fs.FS, wrapInDir bool) (uint64, error) {
-	_, summary, err := car.PrepareCAR(ctx, filesystem, wrapInDir)
+	summary, err := prepareCARSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return 0, err
 	}

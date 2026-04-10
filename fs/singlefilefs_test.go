@@ -25,7 +25,8 @@ func createTestFile(t *testing.T, content string) string {
 	require.NoError(t, err)
 	
 	// Close and return the path
-	tmpFile.Close()
+	err = tmpFile.Close()
+	require.NoError(t, err)
 	return tmpFile.Name()
 }
 

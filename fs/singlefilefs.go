@@ -59,9 +59,11 @@ func NewSingleFileFSFromReader(reader io.ReadSeeker, filename string) *SingleFil
 // For "." we return the file itself since SingleFileFS represents a single file,
 // not a directory containing the file.
 //
-// Note: Each call to Open() returns the same underlying file handle. The file position
-// is reset to 0 on each open call to support CAR generation's two-pass pattern where
-// the file is read, then reopened and read again from the beginning.
+// Note: Each call to Open() returns a wrapper around the same underlying file handle.
+// The wrapper's Close() is a no-op to prevent double-close vulnerabilities. The caller
+// is still responsible for closing the original file passed to NewSingleFileFS.
+// The file position is reset to 0 on each open call to support CAR generation's two-pass
+// pattern where the file is read, then reopened and read again from the beginning.
 func (s *SingleFileFS) Open(name string) (fs.File, error) {
 	if name == "." || name == s.filename {
 		// Seek to the beginning so reopens start from a clean state
@@ -70,7 +72,8 @@ func (s *SingleFileFS) Open(name string) (fs.File, error) {
 				return nil, fmt.Errorf("failed to reset file position for CAR generation: %w", err)
 			}
 		}
-		return s.file, nil
+		// Return a wrapper with no-op Close to prevent double-close vulnerability
+		return &singleFileFSWrapper{file: s.file}, nil
 	}
 	return nil, fs.ErrNotExist
 }
@@ -94,6 +97,38 @@ func (s *SingleFileFS) Stat(name string) (fs.FileInfo, error) {
 		}, nil
 	}
 	return nil, fs.ErrNotExist
+}
+
+// singleFileFSWrapper wraps an fs.File to provide a no-op Close method.
+// This prevents double-close vulnerabilities when the caller closes the file
+// returned by Open() and also closes the original file passed to NewSingleFileFS.
+type singleFileFSWrapper struct {
+	file fs.File
+}
+
+// Read implements io.Reader.
+func (w *singleFileFSWrapper) Read(p []byte) (n int, err error) {
+	return w.file.Read(p)
+}
+
+// Seek implements io.Seeker.
+func (w *singleFileFSWrapper) Seek(offset int64, whence int) (int64, error) {
+	if seeker, ok := w.file.(io.Seeker); ok {
+		return seeker.Seek(offset, whence)
+	}
+	return 0, fmt.Errorf("file does not support seeking")
+}
+
+// Stat implements fs.File.Stat.
+func (w *singleFileFSWrapper) Stat() (fs.FileInfo, error) {
+	return w.file.Stat()
+}
+
+// Close implements io.Closer.
+// This is a no-op to prevent double-close. The caller is responsible for
+// closing the original file passed to NewSingleFileFS.
+func (w *singleFileFSWrapper) Close() error {
+	return nil
 }
 
 // singleFile adapts a *os.File to implement Seek for fs.FS compatibility.
