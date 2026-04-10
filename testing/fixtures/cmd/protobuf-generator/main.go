@@ -1,5 +1,3 @@
-//go:build ignore
-
 package main
 
 import (
@@ -12,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	fixtures "go.lumeweb.com/ipfs-content/testing/fixtures"
 
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
@@ -80,8 +80,17 @@ func run() error {
 
 	// Create JSON info file
 	outputDir := os.Getenv("OUTPUT_DIR")
-	if outputDir == "" {
-		outputDir = "."
+	// Check for positional argument override (fixtures directory)
+	flagArgs := flag.Args()
+	if len(flagArgs) > 0 {
+		outputDir = flagArgs[0]
+	} else {
+		// Use shared fixtures package for reliable path resolution
+		var err error
+		outputDir, err = fixtures.ResolveOutputDir("data")
+		if err != nil {
+			return fmt.Errorf("failed to resolve output directory: %w", err)
+		}
 	}
 	// Use 1/0 instead of true/false for consistent naming
 	missingFlag := 0
@@ -112,6 +121,12 @@ func run() error {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(info); err != nil {
 		return fmt.Errorf("failed to write info file: %w", err)
+	}
+
+	// Write the block data to a .block file
+	blockFile := filepath.Join(outputDir, fmt.Sprintf("protobuf_%d_%d.block", *size, missingFlag))
+	if err := os.WriteFile(blockFile, protoData, 0644); err != nil {
+		return fmt.Errorf("failed to write block file: %w", err)
 	}
 
 	return nil

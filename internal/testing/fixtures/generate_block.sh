@@ -279,40 +279,31 @@ for MISSING in $MISSING_BLOCKS; do
   done
 done
 
-# --- Build Protobuf Generator ---
-echo -e "\n=== Building Protobuf Generator ==="
-echo "Building protobuf generator..."
-go build -o "$TEMP_DIR/protobuf_generator" "$SCRIPT_DIR/protobuf_generator.go"
-
 # --- Generate Protobuf Test Data ---
 echo -e "\n=== Generating Protobuf Test Data ==="
 for SIZE in $FILE_SIZES; do
   for MISSING in $MISSING_BLOCKS; do
     echo -e "\nGenerating protobuf data (size: ${SIZE}, missing: ${MISSING})..."
     
-    CID=$(OUTPUT_DIR="$OUTPUT_DIR" "$TEMP_DIR/protobuf_generator" -size "$SIZE" -partial "$MISSING")
-    echo "Generated CID: $CID"
+    # Build and run protobuf-generator directly - it now writes block and info files
+    go run "$SCRIPT_DIR/../../../testing/fixtures/cmd/protobuf-generator/main.go" \
+      -size "$SIZE" -partial "$MISSING" > /dev/null || { echo "Failed to generate protobuf data"; continue; }
     
     BLOCK_DATA_FILE="${OUTPUT_DIR}/protobuf_${SIZE}_${MISSING}.block"
-    mkdir -p -- "${OUTPUT_DIR}"
-    ipfs block get "$CID" > "$BLOCK_DATA_FILE" || { echo "Failed to export block"; continue; }
-    
-    IS_PARTIAL=$(is_likely_chunk "$SIZE")
-
     info_file="${OUTPUT_DIR}/protobuf_${SIZE}_${MISSING}.info.json"
+    
+    # Verify both files were created
+    if [[ ! -f "$BLOCK_DATA_FILE" ]]; then
+    	echo "Error: Protobuf block file not created: $BLOCK_DATA_FILE"
+    	exit 1
+    fi
+    
     if [[ ! -f "$info_file" ]]; then
     	echo "Error: Protobuf info file not created: $info_file"
     	exit 1
     fi
-
-    if [ "$MISSING" -eq 1 ]; then
-      ipfs block rm "$CID" >/dev/null 2>&1 || true
-    fi
   done
 done
-
-# Cleanup
-rm "$TEMP_DIR/protobuf_generator"
 
 echo -e "\n=== Test data generation complete. ==="
 echo "Output directory: $OUTPUT_DIR"

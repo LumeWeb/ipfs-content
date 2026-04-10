@@ -1,12 +1,11 @@
-//go:build ignore
-
 package main
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+
+	fixtures "go.lumeweb.com/ipfs-content/testing/fixtures"
 
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
@@ -14,12 +13,20 @@ import (
 )
 
 func main() {
-	// Get source file location using runtime
-	_, filename, _, _ := runtime.Caller(0)
-	cwd := filepath.Dir(filename)
-
-	// Define the output CAR file path in the cars/ subdirectory
-	carsDir := filepath.Join(cwd, "cars")
+	// Check for optional fixtures directory override
+	var carsDir string
+	if len(os.Args) > 1 {
+		carsDir = filepath.Join(os.Args[1], "cars")
+	} else {
+		// Use shared fixtures package for reliable path resolution
+		var err error
+		carsDir, err = fixtures.ResolveOutputDir("cars")
+		if err != nil {
+			fmt.Println("Error resolving output directory:", err)
+			return
+		}
+	}
+	
 	if err := os.MkdirAll(carsDir, 0755); err != nil {
 		fmt.Println("Error creating cars directory:", err)
 		return
