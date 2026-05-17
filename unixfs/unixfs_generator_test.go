@@ -11,6 +11,9 @@ import (
 	"github.com/ipfs/boxo/blockstore"
 	"github.com/ipfs/boxo/exchange/offline"
 	"github.com/ipfs/boxo/ipld/merkledag"
+	"github.com/ipfs/boxo/ipld/unixfs/importer/balanced"
+	"github.com/ipfs/boxo/ipld/unixfs/importer/helpers"
+	format "github.com/ipfs/go-ipld-format"
 	"github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
@@ -54,6 +57,43 @@ func TestNewUnixFSNodeGenerator(t *testing.T) {
 	// Verify returns DAG service and blockstore
 	assert.NotNil(t, generator.GetDAGService())
 	assert.NotNil(t, generator.GetBlockstore())
+}
+
+func TestNewUnixFSNodeGenerator_WithDAGLayout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default_layout_is_balanced", func(t *testing.T) {
+		gen := NewUnixFSNodeGenerator(
+			WithUnixFSNodeDAGService(nil),
+			WithUnixFSNodeBlockstore(nil),
+		)
+		impl := gen.(*IPFSUnixFSNodeGenerator)
+		assert.Nil(t, impl.layoutFunc)
+	})
+
+	t.Run("custom_layout_is_applied", func(t *testing.T) {
+		var called bool
+		testLayout := func(db *helpers.DagBuilderHelper) (format.Node, error) {
+			called = true
+			return balanced.Layout(db)
+		}
+
+		dstore := dssync.MutexWrap(ds.NewMapDatastore())
+		bstore := blockstore.NewBlockstore(dstore)
+		dagService := merkledag.NewDAGService(blockservice.New(bstore, offline.Exchange(bstore)))
+		defer dstore.Close()
+
+		gen := NewUnixFSNodeGenerator(
+			WithUnixFSNodeDAGService(dagService),
+			WithUnixFSNodeBlockstore(bstore),
+			WithDAGLayout(testLayout),
+		)
+
+		r := bytes.NewReader([]byte("hello world"))
+		_, err := gen.CreateDAGFromReader(context.Background(), r, helpers.DefaultLinksPerBlock, 256, false)
+		require.NoError(t, err)
+		assert.True(t, called, "custom layout function should have been called")
+	})
 }
 
 // TestIPFSUnixFSNodeGenerator_CreateDirectory tests directory creation
