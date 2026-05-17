@@ -1966,3 +1966,52 @@ func TestBuildSummary_SingleFileAsCurrentDir_NoWrap(t *testing.T) {
 	require.Equal(t, entry.CID, summary.RootCID,
 		"With wrapInDir=false, RootCID should be the file's CID")
 }
+
+func TestStreamCARWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	filesystem := fstest.MapFS{
+		"file.txt": {Data: []byte("hello world")},
+	}
+
+	var buf bytes.Buffer
+	rootCID, err := StreamCARWithOptions(ctx, filesystem, &buf, true, WithChunkSize(256))
+	assert.NoError(t, err)
+	assert.NotEqual(t, cid.Undef, rootCID)
+
+	carReader, err := carv2.NewCarReader(&buf)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(1), carReader.Header.Version)
+}
+
+func TestStreamCARWithSizeWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	filesystem := fstest.MapFS{
+		"file.txt": {Data: []byte("hello world")},
+	}
+
+	var buf bytes.Buffer
+	rootCID, carSize, err := StreamCARWithSizeWithOptions(ctx, filesystem, &buf, true, WithChunkSize(256))
+	assert.NoError(t, err)
+	assert.NotEqual(t, cid.Undef, rootCID)
+	assert.Greater(t, carSize, int64(0))
+}
+
+func TestPrepareCARWithOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	filesystem := fstest.MapFS{
+		"file.txt": {Data: []byte("hello world")},
+	}
+
+	builder, summary, err := PrepareCARWithOptions(ctx, filesystem, true, WithChunkSize(256))
+	require.NoError(t, err)
+	assert.NotNil(t, builder)
+	assert.NotNil(t, summary)
+	assert.NotEqual(t, cid.Undef, summary.RootCID)
+	assert.Equal(t, int64(256), builder.chunkSize)
+}
