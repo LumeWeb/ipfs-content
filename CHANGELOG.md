@@ -1,3 +1,11 @@
+## 0.1.16 (2026-05-17)
+
+### Features
+
+- add WithChunkSize option to NewCARBuilder
+- add WithChunkerStrategy option for configurable DAG layout (balanced/trickle)
+- add WithMaxLinks option to NewCARBuilder for configurable DAG layout
+
 ## 0.1.15 (2026-04-10)
 
 ### Features
