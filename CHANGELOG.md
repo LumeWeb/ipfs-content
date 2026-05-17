@@ -1,3 +1,9 @@
+## 0.1.17 (2026-05-17)
+
+### Features
+
+- add PrepareCARWithOptions, StreamCARWithOptions, StreamCARWithSizeWithOptions
+
 ## 0.1.16 (2026-05-17)
 
 ### Features
