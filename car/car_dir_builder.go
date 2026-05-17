@@ -583,19 +583,36 @@ type blockInfo struct {
 	count int
 }
 
+// CARBuilderOption is a function that configures a CARBuilder.
+type CARBuilderOption func(*CARBuilder)
+
+// WithChunkSize sets the chunk size (in bytes) for UnixFS file splitting.
+// The default is 1MB (1024 * 1024).
+func WithChunkSize(chunkSize int64) CARBuilderOption {
+	return func(b *CARBuilder) {
+		b.chunkSize = chunkSize
+	}
+}
+
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
 // If bs or dagService is nil, a new LevelBlockStore is created.
-func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, generator unixfs.UnixFSNodeGenerator) *CARBuilder {
+func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, generator unixfs.UnixFSNodeGenerator, opts ...CARBuilderOption) *CARBuilder {
 	if bs == nil || dagService == nil {
 		bs, dagService = NewDAGServiceWithLevelAware()
 	}
 
-	return &CARBuilder{
+	b := &CARBuilder{
 		bs:         bs,
 		dagService: dagService,
 		generator:  generator,
 		chunkSize:  1024 * 1024,
 	}
+
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	return b
 }
 
 // BuildSummary performs pass 1: walks the filesystem and builds the UnixFS DAG,

@@ -951,6 +951,16 @@ func TestNewCARBuilder_WithNilParameters(t *testing.T) {
 		assert.NotNil(t, builder.dagService)
 		assert.NotNil(t, builder.generator)
 	})
+
+	t.Run("default_chunk_size_is_1mb", func(t *testing.T) {
+		builder := NewCARBuilder(nil, nil, nil)
+		assert.Equal(t, int64(1024*1024), builder.chunkSize)
+	})
+
+	t.Run("with_chunk_size_overrides_default", func(t *testing.T) {
+		builder := NewCARBuilder(nil, nil, nil, WithChunkSize(512*1024))
+		assert.Equal(t, int64(512*1024), builder.chunkSize)
+	})
 }
 
 // TestPrepareCAR tests the PrepareCAR function
