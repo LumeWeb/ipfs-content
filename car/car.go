@@ -55,13 +55,13 @@ func NewDAGServiceWithLevelAware() (boxoblockstore.Blockstore, format.DAGService
 // newCARBuilder creates a CARBuilder with the configured DAG service and node generator.
 // This is an internal helper that encapsulates the common initialization pattern
 // used across StreamCAR, StreamCARWithSize, and PrepareCAR.
-func newCARBuilder() *CARBuilder {
+func newCARBuilder(opts ...CARBuilderOption) *CARBuilder {
 	bs, dagService := NewDAGServiceWithLevelAware()
 	generator := unixfs.NewUnixFSNodeGenerator(
 		unixfs.WithUnixFSNodeDAGService(dagService),
 		unixfs.WithUnixFSNodeBlockstore(bs),
 	)
-	return NewCARBuilder(bs, dagService, generator)
+	return NewCARBuilder(bs, dagService, generator, opts...)
 }
 
 // StreamCAR is a convenience function that builds a directory tree from the
@@ -73,6 +73,20 @@ func StreamCAR(ctx context.Context, filesystem fs.FS, w io.Writer, wrapInDir boo
 		return cid.Cid{}, err
 	}
 	builder := newCARBuilder()
+	rootCID, err := builder.BuildAndWrite(ctx, filesystem, w, wrapInDir)
+	if err != nil {
+		return cid.Cid{}, fmt.Errorf("build: %w", err)
+	}
+
+	return rootCID, nil
+}
+
+// StreamCARWithOptions is like StreamCAR but accepts options to configure the CAR builder.
+func StreamCARWithOptions(ctx context.Context, filesystem fs.FS, w io.Writer, wrapInDir bool, opts ...CARBuilderOption) (cid.Cid, error) {
+	if err := ctx.Err(); err != nil {
+		return cid.Cid{}, err
+	}
+	builder := newCARBuilder(opts...)
 	rootCID, err := builder.BuildAndWrite(ctx, filesystem, w, wrapInDir)
 	if err != nil {
 		return cid.Cid{}, fmt.Errorf("build: %w", err)
@@ -105,6 +119,31 @@ func StreamCARWithSize(ctx context.Context, filesystem fs.FS, w io.Writer, wrapI
 	}
 
 	// Write CAR to the provided writer
+	if err = builder.WriteCAR(ctx, w); err != nil {
+		return cid.Cid{}, 0, fmt.Errorf("write CAR: %w", err)
+	}
+
+	return summary.RootCID, carSize, nil
+}
+
+// StreamCARWithSizeWithOptions is like StreamCARWithSize but accepts options to configure the CAR builder.
+func StreamCARWithSizeWithOptions(ctx context.Context, filesystem fs.FS, w io.Writer, wrapInDir bool, opts ...CARBuilderOption) (cid.Cid, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return cid.Cid{}, 0, err
+	}
+	builder := newCARBuilder(opts...)
+	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
+	if err != nil {
+		return cid.Cid{}, 0, fmt.Errorf("build tree summary: %w", err)
+	}
+
+	summary.RootCID = encoding.NormalizeCid(summary.RootCID)
+
+	carSize, err := CalculateCARSize(summary)
+	if err != nil {
+		return cid.Cid{}, 0, err
+	}
+
 	if err = builder.WriteCAR(ctx, w); err != nil {
 		return cid.Cid{}, 0, fmt.Errorf("write CAR: %w", err)
 	}
@@ -158,6 +197,19 @@ func PrepareCAR(ctx context.Context, filesystem fs.FS, wrapInDir bool) (*CARBuil
 		return nil, nil, err
 	}
 	builder := newCARBuilder()
+	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return builder, summary, nil
+}
+
+// PrepareCARWithOptions is like PrepareCAR but accepts options to configure the CAR builder.
+func PrepareCARWithOptions(ctx context.Context, filesystem fs.FS, wrapInDir bool, opts ...CARBuilderOption) (*CARBuilder, *TreeSummary, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	builder := newCARBuilder(opts...)
 	summary, err := builder.BuildSummary(ctx, filesystem, wrapInDir)
 	if err != nil {
 		return nil, nil, err
