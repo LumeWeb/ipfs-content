@@ -41,6 +41,7 @@ type CARBuilder struct {
 	summary    *TreeSummary
 	chunkSize  int64
 	layoutFunc unixfs.DAGLayoutFunc
+	maxLinks   int
 }
 
 // TreeSummary contains metadata collected during pass 1 of CAR generation.
@@ -603,6 +604,14 @@ func WithChunkerStrategy(layout unixfs.DAGLayoutFunc) CARBuilderOption {
 	}
 }
 
+// WithMaxLinks sets the maximum number of links per DAG node.
+// The default is helpers.DefaultLinksPerBlock (174 for balanced layout).
+func WithMaxLinks(maxLinks int) CARBuilderOption {
+	return func(b *CARBuilder) {
+		b.maxLinks = maxLinks
+	}
+}
+
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
 // If bs or dagService is nil, a new LevelBlockStore is created.
 func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, generator unixfs.UnixFSNodeGenerator, opts ...CARBuilderOption) *CARBuilder {
@@ -615,6 +624,7 @@ func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, gener
 		dagService: dagService,
 		generator:  generator,
 		chunkSize:  1024 * 1024,
+		maxLinks:   helpers.DefaultLinksPerBlock,
 	}
 
 	for _, opt := range opts {
@@ -988,7 +998,7 @@ func (b *CARBuilder) createUnixFSBlocks(ctx context.Context, r io.Reader) (cid.C
 		return cid.Cid{}, nil, nil, 0, err
 	}
 
-	nd, err := b.generator.CreateUnixFSNode(ctx, internalio.NewReadSeekCloser(r), helpers.DefaultLinksPerBlock, b.chunkSize)
+	nd, err := b.generator.CreateUnixFSNode(ctx, internalio.NewReadSeekCloser(r), b.maxLinks, b.chunkSize)
 	if err != nil {
 		return cid.Cid{}, nil, nil, 0, fmt.Errorf("create unixfs node: %w", err)
 	}

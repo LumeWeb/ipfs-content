@@ -20,6 +20,8 @@ import (
 	"go.lumeweb.com/ipfs-content/blockstore"
 	"go.lumeweb.com/ipfs-content/internal/carv2"
 	"go.lumeweb.com/ipfs-content/unixfs"
+
+	"github.com/ipfs/boxo/ipld/unixfs/importer/helpers"
 )
 
 // ============================
@@ -968,6 +970,16 @@ func TestNewCARBuilder_WithNilParameters(t *testing.T) {
 		assert.NotNil(t, builder)
 		assert.NotNil(t, builder.generator)
 		assert.NotNil(t, builder.layoutFunc)
+	})
+
+	t.Run("default_max_links_is_DefaultLinksPerBlock", func(t *testing.T) {
+		builder := NewCARBuilder(nil, nil, nil)
+		assert.Equal(t, helpers.DefaultLinksPerBlock, builder.maxLinks)
+	})
+
+	t.Run("with_max_links_overrides_default", func(t *testing.T) {
+		builder := NewCARBuilder(nil, nil, nil, WithMaxLinks(10))
+		assert.Equal(t, 10, builder.maxLinks)
 	})
 }
 
