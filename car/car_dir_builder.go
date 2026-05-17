@@ -40,6 +40,7 @@ type CARBuilder struct {
 	wrapInDir  bool
 	summary    *TreeSummary
 	chunkSize  int64
+	layoutFunc unixfs.DAGLayoutFunc
 }
 
 // TreeSummary contains metadata collected during pass 1 of CAR generation.
@@ -594,6 +595,14 @@ func WithChunkSize(chunkSize int64) CARBuilderOption {
 	}
 }
 
+// WithChunkerStrategy sets the DAG layout function (e.g. balanced.Layout, trickle.Layout).
+// When set, the builder replaces its generator with one that uses the specified layout.
+func WithChunkerStrategy(layout unixfs.DAGLayoutFunc) CARBuilderOption {
+	return func(b *CARBuilder) {
+		b.layoutFunc = layout
+	}
+}
+
 // NewCARBuilder creates a new CARBuilder with the specified blockstore, DAG service, and UnixFS node generator.
 // If bs or dagService is nil, a new LevelBlockStore is created.
 func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, generator unixfs.UnixFSNodeGenerator, opts ...CARBuilderOption) *CARBuilder {
@@ -610,6 +619,14 @@ func NewCARBuilder(bs blockstore.Blockstore, dagService format.DAGService, gener
 
 	for _, opt := range opts {
 		opt(b)
+	}
+
+	if b.layoutFunc != nil {
+		b.generator = unixfs.NewUnixFSNodeGenerator(
+			unixfs.WithUnixFSNodeDAGService(b.dagService),
+			unixfs.WithUnixFSNodeBlockstore(b.bs),
+			unixfs.WithDAGLayout(b.layoutFunc),
+		)
 	}
 
 	return b

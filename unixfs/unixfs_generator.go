@@ -26,6 +26,13 @@ type DirectoryChild struct {
 	Size uint64
 }
 
+// DAGLayoutFunc is the signature for a UnixFS DAG layout function.
+// It receives a DagBuilderHelper and returns the root node of the constructed DAG.
+type DAGLayoutFunc func(*helpers.DagBuilderHelper) (format.Node, error)
+
+// BalancedLayout is the default balanced DAG layout strategy.
+var BalancedLayout DAGLayoutFunc = balanced.Layout
+
 // UnixFSNodeGenerator defines the interface for creating UnixFS nodes from readers.
 type UnixFSNodeGenerator interface {
 	// CreateNode creates a UnixFS node from a reader using default parameters.
@@ -54,6 +61,7 @@ type UnixFSNodeGenerator interface {
 type UnixFSNodeGeneratorOptions struct {
 	DAGService format.DAGService
 	Blockstore blockstore.Blockstore
+	Layout     DAGLayoutFunc
 }
 
 // UnixFSNodeGeneratorOption is a function that configures UnixFSNodeGeneratorOptions.
@@ -73,10 +81,18 @@ func WithUnixFSNodeBlockstore(blockstore blockstore.Blockstore) UnixFSNodeGenera
 	}
 }
 
+// WithDAGLayout sets the DAG layout function (e.g. balanced.Layout, trickle.Layout).
+func WithDAGLayout(layout DAGLayoutFunc) UnixFSNodeGeneratorOption {
+	return func(opts *UnixFSNodeGeneratorOptions) {
+		opts.Layout = layout
+	}
+}
+
 // IPFSUnixFSNodeGenerator implements the UnixFSNodeGenerator interface using IPFS libraries.
 type IPFSUnixFSNodeGenerator struct {
 	dagService format.DAGService
 	blockstore blockstore.Blockstore
+	layoutFunc DAGLayoutFunc
 }
 
 // NewUnixFSNodeGeneratorWithOptions creates a new UnixFSNodeGenerator instance with configurable options.
@@ -89,6 +105,7 @@ func NewUnixFSNodeGenerator(options ...UnixFSNodeGeneratorOption) UnixFSNodeGene
 	return &IPFSUnixFSNodeGenerator{
 		dagService: opts.DAGService,
 		blockstore: opts.Blockstore,
+		layoutFunc: opts.Layout,
 	}
 }
 
@@ -198,7 +215,12 @@ func (gen *IPFSUnixFSNodeGenerator) CreateDAGFromReader(ctx context.Context, rea
 		return nil, err
 	}
 
-	nd, err := balanced.Layout(db)
+	layout := gen.layoutFunc
+	if layout == nil {
+		layout = balanced.Layout
+	}
+
+	nd, err := layout(db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build balanced layout: %w", err)
 	}

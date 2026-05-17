@@ -19,6 +19,7 @@ import (
 
 	"go.lumeweb.com/ipfs-content/blockstore"
 	"go.lumeweb.com/ipfs-content/internal/carv2"
+	"go.lumeweb.com/ipfs-content/unixfs"
 )
 
 // ============================
@@ -960,6 +961,13 @@ func TestNewCARBuilder_WithNilParameters(t *testing.T) {
 	t.Run("with_chunk_size_overrides_default", func(t *testing.T) {
 		builder := NewCARBuilder(nil, nil, nil, WithChunkSize(512*1024))
 		assert.Equal(t, int64(512*1024), builder.chunkSize)
+	})
+
+	t.Run("with_chunker_strategy_replaces_generator", func(t *testing.T) {
+		builder := NewCARBuilder(nil, nil, nil, WithChunkerStrategy(unixfs.BalancedLayout))
+		assert.NotNil(t, builder)
+		assert.NotNil(t, builder.generator)
+		assert.NotNil(t, builder.layoutFunc)
 	})
 }
 
