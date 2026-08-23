@@ -1,3 +1,9 @@
+## 0.1.18 (2026-08-23)
+
+### Fixes
+
+- SingleFileFS.Stat returns caller-supplied filename, not OS file name
+
 ## 0.1.17 (2026-05-17)
 
 ### Features
