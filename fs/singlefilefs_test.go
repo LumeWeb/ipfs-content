@@ -605,14 +605,16 @@ func TestSingleFileFSStatCorrect(t *testing.T) {
 	origStat, err := file.Stat()
 	require.NoError(t, err)
 	
-	singleFS := NewSingleFileFS(file, "stattest.txt")
+	desiredName := "stattest.txt"
+	singleFS := NewSingleFileFS(file, desiredName)
 	
 	// Stat through SingleFileFS
 	info, err := fs.Stat(singleFS, ".")
 	require.NoError(t, err)
 	
-	// Verify stats match
-	assert.Equal(t, origStat.Name(), info.Name())
+	// Stat must report the caller-supplied filename, not the OS file name.
+	assert.Equal(t, desiredName, info.Name())
+	// Size, mode, and IsDir still come from the underlying file.
 	assert.Equal(t, origStat.Size(), info.Size())
 	assert.Equal(t, origStat.Mode(), info.Mode())
 	assert.False(t, info.IsDir(), "IsDir should be false for SingleFileFS root")
