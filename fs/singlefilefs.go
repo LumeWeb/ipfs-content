@@ -87,9 +87,14 @@ func (s *SingleFileFS) Stat(name string) (fs.FileInfo, error) {
 			// Wrap any error as fs.ErrNotExist for consistency with BytesFS
 			return nil, fs.ErrNotExist
 		}
-		// Ensure IsDir returns false for the wrapped file
+		// Ensure IsDir returns false for the wrapped file.
+		// Use s.filename (the caller-supplied name) rather than info.Name()
+		// (the underlying OS file's name), so that fs.WalkDir — which derives
+		// entry names from Stat — sees the correct logical filename.  Without
+		// this, a SingleFileFS wrapping a *os.TempFile leaks the temp file
+		// name (e.g. "pinner-mcp-upload-4165666034") into the UnixFS DAG.
 		return &singleFileInfo{
-			name:  info.Name(),
+			name:  s.filename,
 			size:  info.Size(),
 			mode:  info.Mode(),
 			mtime: info.ModTime(),
